@@ -16,7 +16,8 @@ class HexEditor {
   }
 
   String _decodeCustomEncoding(List<int> buffer) {
-    return buffer.map((hexValue) => String.fromCharCode(hexValue)).join();
+    String result = utf8.decode(buffer, allowMalformed: true);
+    return result.replaceAll('\u815C\u81F4', '----');
   }
 
   void _extractStrings() {
@@ -25,21 +26,16 @@ class HexEditor {
     List<int> buffer = [];
 
     for (int i = 0; i < data.length; i++) {
-      // Permitir caracteres ASCII imprimíveis e saltos de linha
       if ((data[i] >= 32 && data[i] <= 126) || data[i] == 0x0A || data[i] == 0x0D) {
         if (start == -1) start = i;
         buffer.add(data[i]);
-      }
-      // Se encontrar 0x81 0x5C 0x81 0xF4, adiciona a sequência sem cortar a string
-      else if (i + 3 < data.length &&
+      } else if (i + 3 < data.length &&
           data[i] == 0x81 && data[i + 1] == 0x5C &&
           data[i + 2] == 0x81 && data[i + 3] == 0xF4) {
         if (start == -1) start = i;
-        buffer.addAll([0x81, 0x5C, 0x81, 0xF4]); // Mantém a sequência
-        i += 3; // Pula os próximos 3 bytes
-      }
-      // Quando encontra algo que não faz parte do texto, encerra a captura
-      else {
+        buffer.addAll([0x81, 0x5C, 0x81, 0xF4]);
+        i += 3;
+      } else {
         if (start != -1 && buffer.isNotEmpty) {
           strings[start] = _decodeCustomEncoding(buffer);
           buffer.clear();
@@ -65,45 +61,44 @@ class HexEditor {
 
   void editString(int oldOffset, String newText) {
     if (!strings.containsKey(oldOffset)) return;
-    
-    newText = newText.replaceAllMapped(RegExp(r'[äÄ]'), (match) {
-      return match[0] == 'ä' ? 'ã' : 'Ã';
-    });
 
-    Uint8List newStringBytes = Uint8List.fromList(utf8.encode(newText) + [0]);
-    int oldLength = strings[oldOffset]!.length + 1;
+    Uint8List oldStringBytes = Uint8List.fromList(utf8.encode(strings[oldOffset]!));
+    Uint8List newStringBytes = Uint8List.fromList(utf8.encode(newText));
 
-    if (newStringBytes.length > oldLength) {
-      int newOffset = oldOffset;
-      data = Uint8List.fromList([...data.sublist(0, newOffset), ...newStringBytes, ...data.sublist(newOffset + oldLength)]);
-
-      Map<int, int> updatedPointers = {};
-      pointers.forEach((key, value) {
-        if (value == oldOffset) {
-          updatedPointers[key] = newOffset;
-        } else if (value > oldOffset) {
-          updatedPointers[key] = value + (newStringBytes.length - oldLength);
-        } else {
-          updatedPointers[key] = value;
-        }
-      });
-      pointers = updatedPointers;
-
-      pointers.forEach((key, value) {
-        ByteData.sublistView(data, key).setUint32(0, value, Endian.little);
-      });
+    if (oldStringBytes.contains(0x81) && oldStringBytes.contains(0x5C) &&
+        oldStringBytes.contains(0x81) && oldStringBytes.contains(0xF4)) {
+      newStringBytes = Uint8List.fromList(newStringBytes + [0x81, 0x5C, 0x81, 0xF4]);
     } else {
-      for (int i = 0; i < newStringBytes.length; i++) {
-        data[oldOffset + i] = newStringBytes[i];
-      }
-      for (int i = newStringBytes.length; i < oldLength; i++) {
-        data[oldOffset + i] = 0;
+      newStringBytes = Uint8List.fromList(newStringBytes + [0]);
+    }
+
+    int oldLength = oldStringBytes.length;
+    int shiftAmount = newStringBytes.length - oldLength;
+    int newSize = data.length + shiftAmount;
+
+    if (newSize < 0) return; // Evita erro de tamanho negativo
+
+    Uint8List newData = Uint8List(newSize);
+    newData.setRange(0, oldOffset, data.sublist(0, oldOffset));
+    newData.setRange(oldOffset, oldOffset + newStringBytes.length, newStringBytes);
+    if (oldOffset + oldLength < data.length) {
+      newData.setRange(oldOffset + newStringBytes.length, newSize, data.sublist(oldOffset + oldLength));
+    }
+
+    for (var entry in pointers.entries) {
+      int ptrAddr = entry.key;
+      int ptrValue = entry.value;
+      if (ptrValue >= oldOffset) {
+        ptrValue += shiftAmount;
+        if (ptrAddr + 4 <= newSize) {
+          ByteData.sublistView(newData).setUint32(ptrAddr, ptrValue, Endian.little);
+        }
       }
     }
 
+    data = newData;
     _extractStrings();
     _extractPointers();
-    print("Edição concluída: ${exportHex()}");
   }
 
   String exportHex() => hex.encode(data);
@@ -170,6 +165,7 @@ class _HexInputScreenState extends State<HexInputScreen> {
   }
 }
 
+//aqui
 
 class HexEditorScreen extends StatefulWidget {
   final String hexString;
