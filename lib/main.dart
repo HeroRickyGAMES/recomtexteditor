@@ -23,11 +23,23 @@ class HexEditor {
     strings.clear();
     int start = -1;
     List<int> buffer = [];
+
     for (int i = 0; i < data.length; i++) {
+      // Permitir caracteres ASCII imprimíveis e saltos de linha
       if ((data[i] >= 32 && data[i] <= 126) || data[i] == 0x0A || data[i] == 0x0D) {
         if (start == -1) start = i;
         buffer.add(data[i]);
-      } else {
+      }
+      // Se encontrar 0x81 0x5C 0x81 0xF4, adiciona a sequência sem cortar a string
+      else if (i + 3 < data.length &&
+          data[i] == 0x81 && data[i + 1] == 0x5C &&
+          data[i + 2] == 0x81 && data[i + 3] == 0xF4) {
+        if (start == -1) start = i;
+        buffer.addAll([0x81, 0x5C, 0x81, 0xF4]); // Mantém a sequência
+        i += 3; // Pula os próximos 3 bytes
+      }
+      // Quando encontra algo que não faz parte do texto, encerra a captura
+      else {
         if (start != -1 && buffer.isNotEmpty) {
           strings[start] = _decodeCustomEncoding(buffer);
           buffer.clear();
@@ -35,6 +47,7 @@ class HexEditor {
         }
       }
     }
+
     if (start != -1 && buffer.isNotEmpty) {
       strings[start] = _decodeCustomEncoding(buffer);
     }
