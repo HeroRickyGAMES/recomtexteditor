@@ -73,45 +73,58 @@ class HexEditor {
   void editString(int oldOffset, String newText) {
     if (!strings.containsKey(oldOffset)) return;
 
-    newText = newText.replaceAllMapped(RegExp(r'[äÄ]'), (match) {
-      return match[0] == 'ä' ? 'ã' : 'Ã';
-    });
-
     Uint8List newStringBytes = Uint8List.fromList(utf8.encode(newText) + [0]);
-    int oldLength = strings[oldOffset]!.length + 1;
+    String oldText = strings[oldOffset]!;
+    int oldLength = utf8.encode(oldText).length + 1; // real length in bytes
+    int shiftAmount = newStringBytes.length - oldLength;
 
-    if (newStringBytes.length > oldLength) {
-      int newOffset = oldOffset;
-      data = Uint8List.fromList([...data.sublist(0, newOffset), ...newStringBytes, ...data.sublist(newOffset + oldLength)]);
+    // Criar novo buffer considerando realocação de todos os dados após o texto editado
+    Uint8List newData = Uint8List(data.length + shiftAmount);
+    int insertPos = 0;
 
-      Map<int, int> updatedPointers = {};
-      pointers.forEach((key, value) {
-        if (value == oldOffset) {
-          updatedPointers[key] = newOffset;
-        } else if (value > oldOffset) {
-          updatedPointers[key] = value + (newStringBytes.length - oldLength);
-        } else {
-          updatedPointers[key] = value;
-        }
-      });
-      pointers = updatedPointers;
+    // Copiar dados antes do texto editado
+    newData.setRange(0, oldOffset, data.sublist(0, oldOffset));
+    insertPos += oldOffset;
 
-      pointers.forEach((key, value) {
-        ByteData.sublistView(data, key).setUint32(0, value, Endian.little);
-      });
-    } else {
-      for (int i = 0; i < newStringBytes.length; i++) {
-        data[oldOffset + i] = newStringBytes[i];
+    // Inserir novo texto
+    newData.setRange(insertPos, insertPos + newStringBytes.length, newStringBytes);
+    insertPos += newStringBytes.length;
+
+    // Copiar o restante dos dados ajustando os offsets
+    newData.setRange(insertPos, newData.length, data.sublist(oldOffset + oldLength));
+
+    // Atualiza ponteiros (relocando todos que estavam APÓS o texto original)
+    Map<int, int> updatedPointers = {};
+    for (var entry in pointers.entries) {
+      int pointerAddress = entry.key;
+      int pointerValue = entry.value;
+
+      // Recalcular valores dos ponteiros após a realocação
+      if (pointerValue > oldOffset) {
+        pointerValue += shiftAmount;
       }
-      for (int i = newStringBytes.length; i < oldLength; i++) {
-        data[oldOffset + i] = 0;
+      if (pointerAddress > oldOffset) {
+        pointerAddress += shiftAmount;
+      }
+
+      updatedPointers[pointerAddress] = pointerValue;
+    }
+
+    data = newData;
+    pointers = updatedPointers;
+
+    // Aplicar os ponteiros atualizados na memória
+    for (var entry in pointers.entries) {
+      if (entry.key + 4 <= data.length) {
+        ByteData.sublistView(data, entry.key).setUint32(0, entry.value, Endian.little);
       }
     }
 
+    // Reextrair strings e ponteiros com base no novo conteúdo
     _extractStrings();
     _extractPointers();
-    print("Edição concluída: ${exportHex()}");
   }
+
 
   String exportHex() => hex.encode(data);
 }
