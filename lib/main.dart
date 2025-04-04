@@ -11,13 +11,30 @@ class HexEditor {
 
   HexEditor(String hexString)
       : data = Uint8List.fromList(hex.decode(hexString)) {
+    _sanitizeCustomSequences();
     _extractStrings();
     _extractPointers();
   }
 
-  String _decodeCustomEncoding(List<int> buffer) {
-    String result = utf8.decode(buffer, allowMalformed: true);
-    return result.replaceAll('\u815C\u81F4', '----');
+  void _sanitizeCustomSequences() {
+    final pattern = [0x81, 0x5C, 0x81, 0xF4];
+    final replacement = utf8.encode('----');
+
+    List<int> sanitized = [];
+    for (int i = 0; i < data.length;) {
+      if (i + 3 < data.length &&
+          data[i] == pattern[0] &&
+          data[i + 1] == pattern[1] &&
+          data[i + 2] == pattern[2] &&
+          data[i + 3] == pattern[3]) {
+        sanitized.addAll(replacement);
+        i += 4;
+      } else {
+        sanitized.add(data[i]);
+        i++;
+      }
+    }
+    data = Uint8List.fromList(sanitized);
   }
 
   void _extractStrings() {
@@ -29,15 +46,9 @@ class HexEditor {
       if ((data[i] >= 32 && data[i] <= 126) || data[i] == 0x0A || data[i] == 0x0D) {
         if (start == -1) start = i;
         buffer.add(data[i]);
-      } else if (i + 3 < data.length &&
-          data[i] == 0x81 && data[i + 1] == 0x5C &&
-          data[i + 2] == 0x81 && data[i + 3] == 0xF4) {
-        if (start == -1) start = i;
-        buffer.addAll([0x81, 0x5C, 0x81, 0xF4]);
-        i += 3;
       } else {
         if (start != -1 && buffer.isNotEmpty) {
-          strings[start] = _decodeCustomEncoding(buffer);
+          strings[start] = utf8.decode(buffer, allowMalformed: true);
           buffer.clear();
           start = -1;
         }
@@ -45,7 +56,7 @@ class HexEditor {
     }
 
     if (start != -1 && buffer.isNotEmpty) {
-      strings[start] = _decodeCustomEncoding(buffer);
+      strings[start] = utf8.decode(buffer, allowMalformed: true);
     }
   }
 
@@ -150,13 +161,9 @@ class _HexInputScreenState extends State<HexInputScreen> {
                   hintText: "Cole o hexadecimal aqui...",
                   border: OutlineInputBorder(),
                 ),
-                keyboardType: TextInputType.multiline,
               ),
               SizedBox(height: 10),
-              ElevatedButton(
-                onPressed: _processHex,
-                child: Text("Carregar"),
-              ),
+              ElevatedButton(onPressed: _processHex, child: Text("Carregar")),
             ],
           ),
         ),
@@ -231,11 +238,18 @@ class _HexEditorScreenState extends State<HexEditorScreen> {
             child: ListView.builder(
               itemCount: editor.strings.entries.where((entry) => entry.value.toLowerCase().contains(searchQuery)).length,
               itemBuilder: (context, index) {
+                var entry = editor.strings.entries.elementAt(index);
                 var filteredEntries = editor.strings.entries.where((entry) => entry.value.toLowerCase().contains(searchQuery)).toList();
                 int offset = filteredEntries[index].key;
                 String value = filteredEntries[index].value;
                 return ListTile(
-                  title: Text("Offset: 0x${offset.toRadixString(16).toUpperCase()} - $value"),
+                  title: Text(
+                      "Offset: 0x${offset.toRadixString(16).toUpperCase()} - $value",
+                    style: TextStyle(
+                      color: entry.value.contains('----') ? Colors.amber : Colors.white,
+                      fontWeight: entry.value.contains('----') ? FontWeight.bold : FontWeight.normal,
+                    ),
+                  ),
                   onTap: () {
                     setState(() {
                       selectedOffset = offset;
