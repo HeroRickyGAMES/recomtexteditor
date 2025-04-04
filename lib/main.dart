@@ -26,6 +26,27 @@ class HexEditor {
     final patternEsI = [0x99, 0xA5];
     final replacementi = utf8.encode('i=');
 
+    final patternEsU = [0x99, 0x96];
+    final replacementU = utf8.encode('U=');
+
+    final patternEsa = [0x99, 0x9B];
+    final replacementa = utf8.encode('a=');
+
+    final patternEsE = [0x99, 0x87];
+    final replacementE = utf8.encode('E=');
+
+    final patternEse = [0x99, 0xA1];
+    final replacemente = utf8.encode('e=');
+
+    final patternEsidoispontosEmCima = [0x99, 0xA7];
+    final replacementEsidoispontosEmCima = utf8.encode('i[');
+
+    final patternatil = [0x99, 0xA7];
+    final replacementatil = utf8.encode('a[');
+
+    final patternAtil = [0x99, 0xC4];
+    final replacementAtil = utf8.encode('A[');
+
     List<int> sanitized = [];
     for (int i = 0; i < data.length;) {
       if (i + 3 < data.length &&
@@ -48,8 +69,57 @@ class HexEditor {
             sanitized.addAll(replacementi);
             i += 2;
           }else{
-            sanitized.add(data[i]);
-            i++;
+            if (i + 1 < data.length &&
+                data[i] == patternEsU[0] &&
+                data[i + 1] == patternEsU[1]) {
+              sanitized.addAll(replacementU);
+              i += 2;
+            }else{
+              if (i + 1 < data.length &&
+                  data[i] == patternEsa[0] &&
+                  data[i + 1] == patternEsa[1]) {
+                sanitized.addAll(replacementa);
+                i += 2;
+              }else{
+                if (i + 1 < data.length &&
+                    data[i] == patternEsE[0] &&
+                    data[i + 1] == patternEsE[1]) {
+                  sanitized.addAll(replacementE);
+                  i += 2;
+                }else{
+                  if (i + 1 < data.length &&
+                      data[i] == patternEse[0] &&
+                      data[i + 1] == patternEse[1]) {
+                    sanitized.addAll(replacemente);
+                    i += 2;
+                  }else{
+                    if (i + 1 < data.length &&
+                        data[i] == patternEsidoispontosEmCima[0] &&
+                        data[i + 1] == patternEsidoispontosEmCima[1]) {
+                      sanitized.addAll(replacementEsidoispontosEmCima);
+                      i += 2;
+                    }else{
+                      if (i + 1 < data.length &&
+                          data[i] == patternatil[0] &&
+                          data[i + 1] == patternatil[1]) {
+                        sanitized.addAll(replacementatil);
+                        i += 2;
+                      }else{
+                        if (i + 1 < data.length &&
+                            data[i] == patternAtil[0] &&
+                            data[i + 1] == patternatil[1]) {
+                          sanitized.addAll(replacementAtil);
+                          i += 2;
+                        }else{
+                          sanitized.add(data[i]);
+                          i++;
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
