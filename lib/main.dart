@@ -20,6 +20,12 @@ class HexEditor {
     final pattern = [0x81, 0x5C, 0x81, 0xF4];
     final replacement = utf8.encode('----');
 
+    final patternEsIon = [0x99, 0xAA];
+    final replacemento = utf8.encode('o=');
+
+    final patternEsI = [0x99, 0xA5];
+    final replacementi = utf8.encode('i=');
+
     List<int> sanitized = [];
     for (int i = 0; i < data.length;) {
       if (i + 3 < data.length &&
@@ -30,8 +36,22 @@ class HexEditor {
         sanitized.addAll(replacement);
         i += 4;
       } else {
-        sanitized.add(data[i]);
-        i++;
+        if (i + 1 < data.length &&
+            data[i] == patternEsIon[0] &&
+            data[i + 1] == patternEsIon[1]) {
+          sanitized.addAll(replacemento);
+          i += 2;
+        }else{
+          if (i + 1 < data.length &&
+              data[i] == patternEsI[0] &&
+              data[i + 1] == patternEsI[1]) {
+            sanitized.addAll(replacementi);
+            i += 2;
+          }else{
+            sanitized.add(data[i]);
+            i++;
+          }
+        }
       }
     }
     data = Uint8List.fromList(sanitized);
