@@ -73,43 +73,44 @@ class HexEditor {
   void editString(int oldOffset, String newText) {
     if (!strings.containsKey(oldOffset)) return;
 
-    Uint8List oldStringBytes = Uint8List.fromList(utf8.encode(strings[oldOffset]!));
-    Uint8List newStringBytes = Uint8List.fromList(utf8.encode(newText));
+    newText = newText.replaceAllMapped(RegExp(r'[äÄ]'), (match) {
+      return match[0] == 'ä' ? 'ã' : 'Ã';
+    });
 
-    if (oldStringBytes.contains(0x81) && oldStringBytes.contains(0x5C) &&
-        oldStringBytes.contains(0x81) && oldStringBytes.contains(0xF4)) {
-      newStringBytes = Uint8List.fromList(newStringBytes + [0x81, 0x5C, 0x81, 0xF4]);
-    } else {
-      newStringBytes = Uint8List.fromList(newStringBytes + [0]);
-    }
+    Uint8List newStringBytes = Uint8List.fromList(utf8.encode(newText) + [0]);
+    int oldLength = strings[oldOffset]!.length + 1;
 
-    int oldLength = oldStringBytes.length;
-    int shiftAmount = newStringBytes.length - oldLength;
-    int newSize = data.length + shiftAmount;
+    if (newStringBytes.length > oldLength) {
+      int newOffset = oldOffset;
+      data = Uint8List.fromList([...data.sublist(0, newOffset), ...newStringBytes, ...data.sublist(newOffset + oldLength)]);
 
-    if (newSize < 0) return; // Evita erro de tamanho negativo
-
-    Uint8List newData = Uint8List(newSize);
-    newData.setRange(0, oldOffset, data.sublist(0, oldOffset));
-    newData.setRange(oldOffset, oldOffset + newStringBytes.length, newStringBytes);
-    if (oldOffset + oldLength < data.length) {
-      newData.setRange(oldOffset + newStringBytes.length, newSize, data.sublist(oldOffset + oldLength));
-    }
-
-    for (var entry in pointers.entries) {
-      int ptrAddr = entry.key;
-      int ptrValue = entry.value;
-      if (ptrValue >= oldOffset) {
-        ptrValue += shiftAmount;
-        if (ptrAddr + 4 <= newSize) {
-          ByteData.sublistView(newData).setUint32(ptrAddr, ptrValue, Endian.little);
+      Map<int, int> updatedPointers = {};
+      pointers.forEach((key, value) {
+        if (value == oldOffset) {
+          updatedPointers[key] = newOffset;
+        } else if (value > oldOffset) {
+          updatedPointers[key] = value + (newStringBytes.length - oldLength);
+        } else {
+          updatedPointers[key] = value;
         }
+      });
+      pointers = updatedPointers;
+
+      pointers.forEach((key, value) {
+        ByteData.sublistView(data, key).setUint32(0, value, Endian.little);
+      });
+    } else {
+      for (int i = 0; i < newStringBytes.length; i++) {
+        data[oldOffset + i] = newStringBytes[i];
+      }
+      for (int i = newStringBytes.length; i < oldLength; i++) {
+        data[oldOffset + i] = 0;
       }
     }
 
-    data = newData;
     _extractStrings();
     _extractPointers();
+    print("Edição concluída: ${exportHex()}");
   }
 
   String exportHex() => hex.encode(data);
