@@ -16,6 +16,47 @@ class HexEditor {
     _extractPointers();
   }
 
+  final Map<String, List<int>> replacementToBytes = {
+    'o=': [0x99, 0xAA],
+    'i=': [0x99, 0xA5],
+    'U=': [0x99, 0x96],
+    'a=': [0x99, 0x9B],
+    'E=': [0x99, 0x87],
+    'e=': [0x99, 0xA1],
+    'i[': [0x99, 0xA7],
+    'a[': [0x99, 0xA7],
+    'A[': [0x99, 0xC4],
+    '----': [0x81, 0x5C, 0x81, 0xF4],
+  };
+
+  List<int> encodeWithCustomBytes(String text) {
+    List<int> result = [];
+    int i = 0;
+
+    while (i < text.length) {
+      bool replaced = false;
+
+      for (final entry in replacementToBytes.entries) {
+        final key = entry.key;
+        if (text.substring(i).startsWith(key)) {
+          result.addAll(entry.value);
+          i += key.length;
+          replaced = true;
+          break;
+        }
+      }
+
+      if (!replaced) {
+        result.addAll(utf8.encode(text[i]));
+        i++;
+      }
+    }
+
+    result.add(0); // null terminator
+    return result;
+  }
+
+  //Aqui é aonde fica as conversões que o conversor não consegue ler na tradução
   void _sanitizeCustomSequences() {
     final pattern = [0x81, 0x5C, 0x81, 0xF4];
     final replacement = utf8.encode('----');
@@ -41,7 +82,7 @@ class HexEditor {
     final patternEsidoispontosEmCima = [0x99, 0xA7];
     final replacementEsidoispontosEmCima = utf8.encode('i[');
 
-    final patternatil = [0x99, 0xA7];
+    final patternatil = [0x99, 0xE3];
     final replacementatil = utf8.encode('a[');
 
     final patternAtil = [0x99, 0xC4];
