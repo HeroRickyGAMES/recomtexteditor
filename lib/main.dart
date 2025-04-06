@@ -3,7 +3,6 @@ import 'package:convert/convert.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/services.dart';
-import 'package:collection/collection.dart';
 import 'package:recomtexteditor/tradutor.dart';
 
 class HexEditor {
@@ -17,6 +16,21 @@ class HexEditor {
     _extractStrings();
     _extractPointers();
   }
+
+  void debugPointers() {
+    print('\n=== DEBUG DOS PONTEIROS ===');
+    pointers.forEach((offset, pointerValue) {
+      String str;
+      try {
+        str = _readStringAtOffset(pointerValue);
+      } catch (_) {
+        str = '[ERRO AO LER STRING]';
+      }
+
+      print('0x${offset.toRadixString(16)} → 0x${pointerValue.toRadixString(16)}: "$str"');
+    });
+  }
+
 
   List<int> encodeWithCustomBytes(String text) {
     List<int> result = [];
@@ -67,28 +81,86 @@ class HexEditor {
 
   void _extractStrings() {
     strings.clear();
-    for (int i = 0; i < data.length - 1; i++) {
-      if (data[i] != 0) {
-        final str = _readStringAtOffset(i);
-        if (str.isNotEmpty) {
-          strings[i] = str;
-          i += str.length; // avançar até o fim da string
+    for (int i = 0; i < data.length; i++) {
+      if (data[i] >= 0x20 && data[i] <= 0x7E) { // ASCII visível
+        int start = i;
+        while (i < data.length && data[i] >= 0x20 && data[i] <= 0x7E) {
+          i++;
         }
+        String str = latin1.decode(data.sublist(start, i));
+        strings[start] = str;
+        print('[$start] → "$str"'); // <-- Adiciona isso aqui!
       }
     }
   }
 
+  void replaceStringAtOffset(int offset, String newText) {
+    // Apaga a string antiga (até o próximo 0x00)
+    int i = offset;
+    while (i < data.length && data[i] != 0) {
+      data[i] = 0x00;
+      i++;
+    }
+
+    // Escreve a nova string codificada
+    final encoded = latin1.encode(newText);
+    for (int j = 0; j < encoded.length; j++) {
+      if (offset + j < data.length) {
+        data[offset + j] = encoded[j];
+      }
+    }
+
+    // Adiciona o terminador nulo no fim
+    if (offset + encoded.length < data.length) {
+      data[offset + encoded.length] = 0x00;
+    }
+  }
+
+
   void _extractPointers() {
     pointers.clear();
-    for (int i = 0; i <= data.length - 4; i++) {
-      int value = ByteData.sublistView(data, i).getUint32(0, Endian.little);
-      if (strings.containsKey(value)) {
-        pointers[i] = value;
+
+    // Armazena ponteiros válidos temporariamente
+    final tempPointers = <int, int>{};
+
+    for (int i = 0; i <= data.length - 4; i += 4) {
+      int possiblePointer = data.buffer.asByteData().getUint32(i, Endian.little);
+
+      if (possiblePointer > 0 &&
+          possiblePointer < data.length &&
+          data[possiblePointer] != 0) {
+        try {
+          String str = _readStringAtOffset(possiblePointer);
+          if (str.isNotEmpty) {
+            tempPointers[i] = possiblePointer;
+          }
+        } catch (_) {
+          // Ignora ponteiros inválidos
+        }
       }
+    }
+
+    // Reorganiza os ponteiros colocando o que aponta para "Kingdom Key" primeiro
+    var sortedEntries = tempPointers.entries.toList();
+
+    sortedEntries.sort((a, b) {
+      String aStr = _readStringAtOffset(a.value);
+      String bStr = _readStringAtOffset(b.value);
+
+      if (aStr == "Kingdom Key") return -1;
+      if (bStr == "Kingdom Key") return 1;
+      return 0; // mantém a ordem
+    });
+
+    // Copia para o mapa final
+    for (var entry in sortedEntries) {
+      pointers[entry.key] = entry.value;
     }
   }
 
   void editString(int oldOffset, String newText) {
+    print('ANTES DA EDIÇÃO:');
+    debugPointers();
     if (!strings.containsKey(oldOffset)) return;
 
     Uint8List newStringBytes = Uint8List.fromList(latin1.encode(newText) + [0]);
@@ -141,6 +213,9 @@ class HexEditor {
     // Reextrair strings e ponteiros com base no novo conteúdo
     _extractStrings();
     _extractPointers();
+
+    print('DEPOIS DA EDIÇÃO:');
+    debugPointers();
   }
 
 
