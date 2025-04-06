@@ -3,6 +3,7 @@ import 'package:convert/convert.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/services.dart';
+import 'package:collection/collection.dart';
 
 class HexEditor {
   Uint8List data;
@@ -17,16 +18,16 @@ class HexEditor {
   }
 
   final Map<String, List<int>> replacementToBytes = {
-    'o=': [0x99, 0xAA],
-    'i=': [0x99, 0xA5],
-    'U=': [0x99, 0x96],
-    'a=': [0x99, 0x9B],
-    'E=': [0x99, 0x87],
-    'e=': [0x99, 0xA1],
-    'i[': [0x99, 0xA7],
-    'a[': [0x99, 0xA7],
-    'A[': [0x99, 0xC4],
-    '----': [0x81, 0x5C, 0x81, 0xF4],
+    '™ª': [0x99, 0xAA],
+    '™¥': [0x99, 0xA5],
+    '™–': [0x99, 0x96],
+    '™›': [0x99, 0x9B],
+    '™‡': [0x99, 0x87],
+    '™¡': [0x99, 0xA1],
+    '™§': [0x99, 0xA7],
+    'ä': [0x99, 0xE4],
+    'Ä': [0x99, 0xC4],
+    'ô': [0x81, 0x5C, 0x81, 0xF4],
   };
 
   List<int> encodeWithCustomBytes(String text) {
@@ -47,7 +48,7 @@ class HexEditor {
       }
 
       if (!replaced) {
-        result.addAll(utf8.encode(text[i]));
+        result.add(text.codeUnitAt(i)); // ISO 8859-1 / ASCII compatível
         i++;
       }
     }
@@ -58,136 +59,114 @@ class HexEditor {
 
   //Aqui é aonde fica as conversões que o conversor não consegue ler na tradução
   void _sanitizeCustomSequences() {
-    final pattern = [0x81, 0x5C, 0x81, 0xF4];
-    final replacement = utf8.encode('----');
+    final replacements = {
+      [0x99, 0xAA]: '™ª',
+      [0x99, 0xA5]: '™¥',
+      [0x99, 0x96]: '™–',
+      [0x99, 0x9B]: '™›',
+      [0x99, 0x87]: '™‡',
+      [0x99, 0xA1]: '™¡',
+      [0x99, 0xA7]: '™§',
+      [0x99, 0xE4]: 'ä',
+      [0x99, 0xC4]: 'Ä',
+      [0x81, 0x5C, 0x81, 0xF4]: 'ô'
+    };
 
-    final patternEsIon = [0x99, 0xAA];
-    final replacemento = utf8.encode('o=');
+    final newData = <int>[];
+    int i = 0;
+    while (i < data.length) {
+      bool matched = false;
 
-    final patternEsI = [0x99, 0xA5];
-    final replacementi = utf8.encode('i=');
-
-    final patternEsU = [0x99, 0x96];
-    final replacementU = utf8.encode('U=');
-
-    final patternEsa = [0x99, 0x9B];
-    final replacementa = utf8.encode('a=');
-
-    final patternEsE = [0x99, 0x87];
-    final replacementE = utf8.encode('E=');
-
-    final patternEse = [0x99, 0xA1];
-    final replacemente = utf8.encode('e=');
-
-    final patternEsidoispontosEmCima = [0x99, 0xA7];
-    final replacementEsidoispontosEmCima = utf8.encode('i[');
-
-    final patternatil = [0x99, 0xE3];
-    final replacementatil = utf8.encode('a[');
-
-    final patternAtil = [0x99, 0xC4];
-    final replacementAtil = utf8.encode('A[');
-
-    List<int> sanitized = [];
-    for (int i = 0; i < data.length;) {
-      if (i + 3 < data.length &&
-          data[i] == pattern[0] &&
-          data[i + 1] == pattern[1] &&
-          data[i + 2] == pattern[2] &&
-          data[i + 3] == pattern[3]) {
-        sanitized.addAll(replacement);
-        i += 4;
-      } else {
-        if (i + 1 < data.length &&
-            data[i] == patternEsIon[0] &&
-            data[i + 1] == patternEsIon[1]) {
-          sanitized.addAll(replacemento);
-          i += 2;
-        }else{
-          if (i + 1 < data.length &&
-              data[i] == patternEsI[0] &&
-              data[i + 1] == patternEsI[1]) {
-            sanitized.addAll(replacementi);
-            i += 2;
-          }else{
-            if (i + 1 < data.length &&
-                data[i] == patternEsU[0] &&
-                data[i + 1] == patternEsU[1]) {
-              sanitized.addAll(replacementU);
-              i += 2;
-            }else{
-              if (i + 1 < data.length &&
-                  data[i] == patternEsa[0] &&
-                  data[i + 1] == patternEsa[1]) {
-                sanitized.addAll(replacementa);
-                i += 2;
-              }else{
-                if (i + 1 < data.length &&
-                    data[i] == patternEsE[0] &&
-                    data[i + 1] == patternEsE[1]) {
-                  sanitized.addAll(replacementE);
-                  i += 2;
-                }else{
-                  if (i + 1 < data.length &&
-                      data[i] == patternEse[0] &&
-                      data[i + 1] == patternEse[1]) {
-                    sanitized.addAll(replacemente);
-                    i += 2;
-                  }else{
-                    if (i + 1 < data.length &&
-                        data[i] == patternEsidoispontosEmCima[0] &&
-                        data[i + 1] == patternEsidoispontosEmCima[1]) {
-                      sanitized.addAll(replacementEsidoispontosEmCima);
-                      i += 2;
-                    }else{
-                      if (i + 1 < data.length &&
-                          data[i] == patternatil[0] &&
-                          data[i + 1] == patternatil[1]) {
-                        sanitized.addAll(replacementatil);
-                        i += 2;
-                      }else{
-                        if (i + 1 < data.length &&
-                            data[i] == patternAtil[0] &&
-                            data[i + 1] == patternatil[1]) {
-                          sanitized.addAll(replacementAtil);
-                          i += 2;
-                        }else{
-                          sanitized.add(data[i]);
-                          i++;
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
+      for (final entry in replacements.entries) {
+        final bytes = entry.key;
+        if (i + bytes.length <= data.length &&
+            const ListEquality().equals(data.sublist(i, i + bytes.length), bytes)) {
+          final replacement = entry.value.codeUnits;
+          newData.addAll(replacement);
+          i += bytes.length;
+          matched = true;
+          break;
         }
       }
+
+      if (!matched) {
+        newData.add(data[i]);
+        i++;
+      }
     }
-    data = Uint8List.fromList(sanitized);
+
+    data = Uint8List.fromList(newData);
   }
 
-  void _extractStrings() {
-    strings.clear();
-    int start = -1;
-    List<int> buffer = [];
+  String _finalSanitize(String input) {
+    return input
+        .replaceAll('o=', '™ª')
+        .replaceAll('i=', '™¥')
+        .replaceAll('a=', '™›')
+        .replaceAll('e=', '™¡')
+        .replaceAll('U=', 'ú')
+        .replaceAll('E=', '™‡')
+        .replaceAll('i[', '™§')
+        .replaceAll('a[', 'ä')
+        .replaceAll('A[', 'Ä')
+        .replaceAll('----', '\ô');
+  }
 
-    for (int i = 0; i < data.length; i++) {
-      if ((data[i] >= 32 && data[i] <= 126) || data[i] == 0x0A || data[i] == 0x0D) {
-        if (start == -1) start = i;
-        buffer.add(data[i]);
-      } else {
-        if (start != -1 && buffer.isNotEmpty) {
-          strings[start] = utf8.decode(buffer, allowMalformed: true);
-          buffer.clear();
-          start = -1;
+  String _readStringAtOffset(int offset) {
+    final bytes = <int>[];
+    while (offset < data.length && data[offset] != 0) {
+      bytes.add(data[offset]);
+      offset++;
+    }
+
+    // Converta de volta os bytes especiais para símbolos
+    final specialBytesToChar = {
+      [0x99, 0xAA]: '™ª',
+      [0x99, 0xA5]: '™¥',
+      [0x99, 0x96]: '™–',
+      [0x99, 0x9B]: '™›',
+      [0x99, 0x87]: '™‡',
+      [0x99, 0xA1]: '™¡',
+      [0x99, 0xA7]: '™§',
+      [0x99, 0xE4]: 'ä',
+      [0x99, 0xC4]: 'Ä',
+      [0x81, 0x5C, 0x81, 0xF4]: 'ô',
+    };
+
+    final result = StringBuffer();
+    int i = 0;
+
+    while (i < bytes.length) {
+      bool matched = false;
+      for (final entry in specialBytesToChar.entries) {
+        final b = entry.key;
+        if (i + b.length <= bytes.length &&
+            const ListEquality().equals(bytes.sublist(i, i + b.length), b)) {
+          result.write(entry.value);
+          i += b.length;
+          matched = true;
+          break;
         }
+      }
+      if (!matched) {
+        result.writeCharCode(bytes[i]);
+        i++;
       }
     }
 
-    if (start != -1 && buffer.isNotEmpty) {
-      strings[start] = utf8.decode(buffer, allowMalformed: true);
+    return result.toString();
+  }
+
+
+  void _extractStrings() {
+    for (int i = 0; i < data.length - 1; i++) {
+      if (data[i] != 0) {
+        final str = _readStringAtOffset(i);
+        if (str.isNotEmpty) {
+          strings[i] = str;
+          i += str.length; // avançar até o fim da string
+        }
+      }
     }
   }
 
@@ -204,7 +183,7 @@ class HexEditor {
   void editString(int oldOffset, String newText) {
     if (!strings.containsKey(oldOffset)) return;
 
-    Uint8List newStringBytes = Uint8List.fromList(utf8.encode(newText) + [0]);
+    Uint8List newStringBytes = Uint8List.fromList(encodeWithCustomBytes(newText));
     String oldText = strings[oldOffset]!;
     int oldLength = utf8.encode(oldText).length + 1; // real length in bytes
     int shiftAmount = newStringBytes.length - oldLength;
@@ -252,8 +231,9 @@ class HexEditor {
     }
 
     // Reextrair strings e ponteiros com base no novo conteúdo
-    _extractStrings();
-    _extractPointers();
+    _extractStrings();           // Primeiro extrai as strings
+    _sanitizeCustomSequences(); // Depois sanitiza as strings extraídas
+    _extractPointers();         // Por fim, extrai os ponteiros (opcionalmente)
   }
 
 
@@ -389,7 +369,7 @@ class _HexEditorScreenState extends State<HexEditorScreen> {
                 String value = filteredEntries[index].value;
                 return ListTile(
                   title: Text(
-                      "Offset: 0x${offset.toRadixString(16).toUpperCase()} - $value",
+                    "Offset: 0x${offset.toRadixString(16).toUpperCase()} - $value",
                     style: TextStyle(
                       color: entry.value.contains('----') ? Colors.amber : Colors.white,
                       fontWeight: entry.value.contains('----') ? FontWeight.bold : FontWeight.normal,
