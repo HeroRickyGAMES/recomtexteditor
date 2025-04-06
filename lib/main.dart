@@ -355,7 +355,7 @@ class _HexEditorScreenState extends State<HexEditorScreen> {
                 String value = filteredEntries[index].value;
                 return ListTile(
                   title: Text(
-                    "Offset: 0x${offset.toRadixString(16).toUpperCase()} - $value",
+                    "Offset: 0x${offset.toRadixString(16).toUpperCase()} - ${value.replaceAll('"ª', 'ó').replaceAll('":', "á").replaceAll('¯', 'ú').replaceAll('"¥', 'í').replaceAll('¨', 'ñ').replaceAll("", 'Á').replaceAll('"¡', "é").replaceAll('"', 'u').replaceAll("", 'Í').replaceAll("", 'Ó')}",
                     style: TextStyle(
                       color: entry.value.contains('----') ? Colors.amber : Colors.white,
                       fontWeight: entry.value.contains('----') ? FontWeight.bold : FontWeight.normal,
