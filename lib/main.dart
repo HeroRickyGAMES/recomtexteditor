@@ -48,7 +48,7 @@ class HexEditor {
       }
 
       if (!replaced) {
-        result.addAll(utf8.encode(text[i]));
+        result.addAll(latin1.encode(text[i]));
         i++;
       }
     }
@@ -60,34 +60,34 @@ class HexEditor {
   //Aqui é aonde fica as conversões que o conversor não consegue ler na tradução
   void _sanitizeCustomSequences() {
     final pattern = [0x81, 0x5C, 0x81, 0xF4];
-    final replacement = utf8.encode('----');
+    final replacement = latin1.encode('----');
 
     final patternEsIon = [0x99, 0xAA];
-    final replacemento = utf8.encode('o=');
+    final replacemento = latin1.encode('o=');
 
     final patternEsI = [0x99, 0xA5];
-    final replacementi = utf8.encode('i=');
+    final replacementi = latin1.encode('i=');
 
     final patternEsU = [0x99, 0x96];
-    final replacementU = utf8.encode('U=');
+    final replacementU = latin1.encode('U=');
 
     final patternEsa = [0x99, 0x9B];
-    final replacementa = utf8.encode('a=');
+    final replacementa = latin1.encode('a=');
 
     final patternEsE = [0x99, 0x87];
-    final replacementE = utf8.encode('E=');
+    final replacementE = latin1.encode('E=');
 
     final patternEse = [0x99, 0xA1];
-    final replacemente = utf8.encode('e=');
+    final replacemente = latin1.encode('e=');
 
     final patternEsidoispontosEmCima = [0x99, 0xA7];
-    final replacementEsidoispontosEmCima = utf8.encode('i[');
+    final replacementEsidoispontosEmCima = latin1.encode('i[');
 
     final patternatil = [0x99, 0xE3];
-    final replacementatil = utf8.encode('a[');
+    final replacementatil = latin1.encode('a[');
 
     final patternAtil = [0x99, 0xC4];
-    final replacementAtil = utf8.encode('A[');
+    final replacementAtil = latin1.encode('A[');
 
     List<int> sanitized = [];
     for (int i = 0; i < data.length;) {
@@ -171,24 +171,15 @@ class HexEditor {
 
   void _extractStrings() {
     strings.clear();
-    int start = -1;
-    List<int> buffer = [];
-
     for (int i = 0; i < data.length; i++) {
-      if ((data[i] >= 32 && data[i] <= 126) || data[i] == 0x0A || data[i] == 0x0D) {
-        if (start == -1) start = i;
-        buffer.add(data[i]);
-      } else {
-        if (start != -1 && buffer.isNotEmpty) {
-          strings[start] = utf8.decode(buffer, allowMalformed: true);
-          buffer.clear();
-          start = -1;
+      if (data[i] >= 32 && data[i] <= 126 || data[i] >= 160) {
+        final start = i;
+        while (i < data.length && data[i] != 0) i++;
+        final strBytes = data.sublist(start, i);
+        if (strBytes.isNotEmpty) {
+          strings[start] = latin1.decode(strBytes);
         }
       }
-    }
-
-    if (start != -1 && buffer.isNotEmpty) {
-      strings[start] = utf8.decode(buffer, allowMalformed: true);
     }
   }
 
@@ -205,9 +196,9 @@ class HexEditor {
   void editString(int oldOffset, String newText) {
     if (!strings.containsKey(oldOffset)) return;
 
-    Uint8List newStringBytes = Uint8List.fromList(utf8.encode(newText) + [0]);
+    Uint8List newStringBytes = Uint8List.fromList(latin1.encode(newText) + [0]);
     String oldText = strings[oldOffset]!;
-    int oldLength = utf8.encode(oldText).length + 1; // real length in bytes
+    int oldLength = latin1.encode(oldText).length + 1; // real length in bytes
     int shiftAmount = newStringBytes.length - oldLength;
 
     // Criar novo buffer considerando realocação de todos os dados após o texto editado
