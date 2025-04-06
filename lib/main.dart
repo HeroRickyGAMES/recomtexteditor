@@ -98,20 +98,6 @@ class HexEditor {
     data = Uint8List.fromList(newData);
   }
 
-  String _finalSanitize(String input) {
-    return input
-        .replaceAll('o=', '™ª')
-        .replaceAll('i=', '™¥')
-        .replaceAll('a=', '™›')
-        .replaceAll('e=', '™¡')
-        .replaceAll('U=', 'ú')
-        .replaceAll('E=', '™‡')
-        .replaceAll('i[', '™§')
-        .replaceAll('a[', 'ä')
-        .replaceAll('A[', 'Ä')
-        .replaceAll('----', '\ô');
-  }
-
   String _readStringAtOffset(int offset) {
     final bytes = <int>[];
     while (offset < data.length && data[offset] != 0) {
@@ -130,7 +116,7 @@ class HexEditor {
       [0x99, 0xA7]: '™§', //ï
       [0x99, 0xE4]: 'ä', //ä
       [0x99, 0xC4]: 'Ä', //Ä
-      [0x81, 0x5C, 0x81, 0xF4]: 'ô',
+      [0x81, 0x5C, 0x81, 0xF4]: 'ô', //----
     };
 
     final result = StringBuffer();
