@@ -17,150 +17,183 @@ class HexEditor {
     _extractPointers();
   }
 
-  void debugPointers() {
-    print('\n=== DEBUG DOS PONTEIROS ===');
-    pointers.forEach((offset, pointerValue) {
-      String str;
-      try {
-        str = _readStringAtOffset(pointerValue);
-      } catch (_) {
-        str = '[ERRO AO LER STRING]';
-      }
-
-      print('0x${offset.toRadixString(16)} → 0x${pointerValue.toRadixString(16)}: "$str"');
-    });
-  }
-
+  final Map<String, List<int>> replacementToBytes = {
+    'o=': [0x99, 0xAA],
+    'i=': [0x99, 0xA5],
+    'U=': [0x99, 0x96],
+    'a=': [0x99, 0x9B],
+    'E=': [0x99, 0x87],
+    'e=': [0x99, 0xA1],
+    'i[': [0x99, 0xA7],
+    'a[': [0x99, 0xA7],
+    'A[': [0x99, 0xC4],
+    '----': [0x81, 0x5C, 0x81, 0xF4],
+  };
 
   List<int> encodeWithCustomBytes(String text) {
     List<int> result = [];
     int i = 0;
 
     while (i < text.length) {
-      result.add(text.codeUnitAt(i)); // ISO 8859-1 / ASCII compatível
-      i++;
+      bool replaced = false;
+
+      for (final entry in replacementToBytes.entries) {
+        final key = entry.key;
+        if (text.substring(i).startsWith(key)) {
+          result.addAll(entry.value);
+          i += key.length;
+          replaced = true;
+          break;
+        }
+      }
+
+      if (!replaced) {
+        result.addAll(latin1.encode(text[i]));
+        i++;
+      }
     }
 
-    result.addAll(latin1.encode(text)); // codifica corretamente com acentos
     result.add(0); // null terminator
     return result;
   }
 
   //Aqui é aonde fica as conversões que o conversor não consegue ler na tradução
   void _sanitizeCustomSequences() {
-    final newData = <int>[];
-    int i = 0;
-    while (i < data.length) {
-      newData.add(data[i]);
-      i++;
-    }
+    final pattern = [0x81, 0x5C, 0x81, 0xF4];
+    final replacement = latin1.encode('----');
 
-    data = Uint8List.fromList(newData);
+    final patternEsIon = [0x99, 0xAA];
+    final replacemento = latin1.encode('o=');
+
+    final patternEsI = [0x99, 0xA5];
+    final replacementi = latin1.encode('i=');
+
+    final patternEsU = [0x99, 0x96];
+    final replacementU = latin1.encode('U=');
+
+    final patternEsa = [0x99, 0x9B];
+    final replacementa = latin1.encode('a=');
+
+    final patternEsE = [0x99, 0x87];
+    final replacementE = latin1.encode('E=');
+
+    final patternEse = [0x99, 0xA1];
+    final replacemente = latin1.encode('e=');
+
+    final patternEsidoispontosEmCima = [0x99, 0xA7];
+    final replacementEsidoispontosEmCima = latin1.encode('i[');
+
+    final patternatil = [0x99, 0xE3];
+    final replacementatil = latin1.encode('a[');
+
+    final patternAtil = [0x99, 0xC4];
+    final replacementAtil = latin1.encode('A[');
+
+    List<int> sanitized = [];
+    for (int i = 0; i < data.length;) {
+      if (i + 3 < data.length &&
+          data[i] == pattern[0] &&
+          data[i + 1] == pattern[1] &&
+          data[i + 2] == pattern[2] &&
+          data[i + 3] == pattern[3]) {
+        sanitized.addAll(replacement);
+        i += 4;
+      } else {
+        if (i + 1 < data.length &&
+            data[i] == patternEsIon[0] &&
+            data[i + 1] == patternEsIon[1]) {
+          sanitized.addAll(replacemento);
+          i += 2;
+        }else{
+          if (i + 1 < data.length &&
+              data[i] == patternEsI[0] &&
+              data[i + 1] == patternEsI[1]) {
+            sanitized.addAll(replacementi);
+            i += 2;
+          }else{
+            if (i + 1 < data.length &&
+                data[i] == patternEsU[0] &&
+                data[i + 1] == patternEsU[1]) {
+              sanitized.addAll(replacementU);
+              i += 2;
+            }else{
+              if (i + 1 < data.length &&
+                  data[i] == patternEsa[0] &&
+                  data[i + 1] == patternEsa[1]) {
+                sanitized.addAll(replacementa);
+                i += 2;
+              }else{
+                if (i + 1 < data.length &&
+                    data[i] == patternEsE[0] &&
+                    data[i + 1] == patternEsE[1]) {
+                  sanitized.addAll(replacementE);
+                  i += 2;
+                }else{
+                  if (i + 1 < data.length &&
+                      data[i] == patternEse[0] &&
+                      data[i + 1] == patternEse[1]) {
+                    sanitized.addAll(replacemente);
+                    i += 2;
+                  }else{
+                    if (i + 1 < data.length &&
+                        data[i] == patternEsidoispontosEmCima[0] &&
+                        data[i + 1] == patternEsidoispontosEmCima[1]) {
+                      sanitized.addAll(replacementEsidoispontosEmCima);
+                      i += 2;
+                    }else{
+                      if (i + 1 < data.length &&
+                          data[i] == patternatil[0] &&
+                          data[i + 1] == patternatil[1]) {
+                        sanitized.addAll(replacementatil);
+                        i += 2;
+                      }else{
+                        if (i + 1 < data.length &&
+                            data[i] == patternAtil[0] &&
+                            data[i + 1] == patternatil[1]) {
+                          sanitized.addAll(replacementAtil);
+                          i += 2;
+                        }else{
+                          sanitized.add(data[i]);
+                          i++;
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    data = Uint8List.fromList(sanitized);
   }
-
-  String _readStringAtOffset(int offset) {
-    final bytes = <int>[];
-    while (offset < data.length && data[offset] != 0) {
-      bytes.add(data[offset]);
-      offset++;
-    }
-
-    // Converta de volta os bytes especiais para símbolos
-
-    final result = StringBuffer();
-    int i = 0;
-
-    while (i < bytes.length) {
-      result.writeCharCode(bytes[i]);
-      i++;
-    }
-
-    return result.toString();
-  }
-
 
   void _extractStrings() {
     strings.clear();
     for (int i = 0; i < data.length; i++) {
-      if (data[i] >= 0x20 && data[i] <= 0x7E) { // ASCII visível
-        int start = i;
-        while (i < data.length && data[i] >= 0x20 && data[i] <= 0x7E) {
-          i++;
+      if (data[i] >= 32 && data[i] <= 126 || data[i] >= 160) {
+        final start = i;
+        while (i < data.length && data[i] != 0) i++;
+        final strBytes = data.sublist(start, i);
+        if (strBytes.isNotEmpty) {
+          strings[start] = latin1.decode(strBytes);
         }
-        String str = latin1.decode(data.sublist(start, i));
-        strings[start] = str;
-        print('[$start] → "$str"'); // <-- Adiciona isso aqui!
       }
     }
   }
-
-  void replaceStringAtOffset(int offset, String newText) {
-    // Apaga a string antiga (até o próximo 0x00)
-    int i = offset;
-    while (i < data.length && data[i] != 0) {
-      data[i] = 0x00;
-      i++;
-    }
-
-    // Escreve a nova string codificada
-    final encoded = latin1.encode(newText);
-    for (int j = 0; j < encoded.length; j++) {
-      if (offset + j < data.length) {
-        data[offset + j] = encoded[j];
-      }
-    }
-
-    // Adiciona o terminador nulo no fim
-    if (offset + encoded.length < data.length) {
-      data[offset + encoded.length] = 0x00;
-    }
-  }
-
 
   void _extractPointers() {
     pointers.clear();
-
-    // Armazena ponteiros válidos temporariamente
-    final tempPointers = <int, int>{};
-
-    for (int i = 0; i <= data.length - 4; i += 4) {
-      int possiblePointer = data.buffer.asByteData().getUint32(i, Endian.little);
-
-      if (possiblePointer > 0 &&
-          possiblePointer < data.length &&
-          data[possiblePointer] != 0) {
-        try {
-          String str = _readStringAtOffset(possiblePointer);
-          if (str.isNotEmpty) {
-            tempPointers[i] = possiblePointer;
-          }
-        } catch (_) {
-          // Ignora ponteiros inválidos
-        }
+    for (int i = 0; i <= data.length - 4; i++) {
+      int value = ByteData.sublistView(data, i).getUint32(0, Endian.little);
+      if (strings.containsKey(value)) {
+        pointers[i] = value;
       }
-    }
-
-    // Reorganiza os ponteiros colocando o que aponta para "Kingdom Key" primeiro
-    var sortedEntries = tempPointers.entries.toList();
-
-    sortedEntries.sort((a, b) {
-      String aStr = _readStringAtOffset(a.value);
-      String bStr = _readStringAtOffset(b.value);
-
-      if (aStr == "Kingdom Key") return -1;
-      if (bStr == "Kingdom Key") return 1;
-      return 0; // mantém a ordem
-    });
-
-    // Copia para o mapa final
-    for (var entry in sortedEntries) {
-      pointers[entry.key] = entry.value;
     }
   }
 
   void editString(int oldOffset, String newText) {
-    print('ANTES DA EDIÇÃO:');
-    debugPointers();
     if (!strings.containsKey(oldOffset)) return;
 
     Uint8List newStringBytes = Uint8List.fromList(latin1.encode(newText) + [0]);
@@ -213,9 +246,6 @@ class HexEditor {
     // Reextrair strings e ponteiros com base no novo conteúdo
     _extractStrings();
     _extractPointers();
-
-    print('DEPOIS DA EDIÇÃO:');
-    debugPointers();
   }
 
 
@@ -351,7 +381,7 @@ class _HexEditorScreenState extends State<HexEditorScreen> {
                 String value = filteredEntries[index].value;
                 return ListTile(
                   title: Text(
-                    "Offset: 0x${offset.toRadixString(16).toUpperCase()} - ${value.replaceAll('"ª', 'ó').replaceAll('":', "á").replaceAll('¯', 'ú').replaceAll('"¥', 'í').replaceAll('¨', 'ñ').replaceAll("", 'Á').replaceAll('"¡', "é").replaceAll('"', 'u').replaceAll("", 'Í').replaceAll("", 'Ó')}",
+                    "Offset: 0x${offset.toRadixString(16).toUpperCase()} - $value",
                     style: TextStyle(
                       color: entry.value.contains('----') ? Colors.amber : Colors.white,
                       fontWeight: entry.value.contains('----') ? FontWeight.bold : FontWeight.normal,
@@ -386,7 +416,6 @@ class _HexEditorScreenState extends State<HexEditorScreen> {
                       IconButton(onPressed: () async {
                         textController.text = await TradutorClass(textController.text);
                         setState(() {
-
                         });
                       }, icon: Icon(Icons.translate)),
                       ElevatedButton(
