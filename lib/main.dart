@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/services.dart';
 import 'package:collection/collection.dart';
+import 'package:recomtexteditor/tradutor.dart';
 
 class HexEditor {
   Uint8List data;
@@ -17,82 +18,27 @@ class HexEditor {
     _extractPointers();
   }
 
-  final Map<String, List<int>> replacementToBytes = {
-    '™ª': [0x99, 0xAA],
-    '™¥': [0x99, 0xA5],
-    '™–': [0x99, 0x96],
-    '™›': [0x99, 0x9B],
-    '™‡': [0x99, 0x87],
-    '™¡': [0x99, 0xA1],
-    '™§': [0x99, 0xA7],
-    'ä': [0x99, 0xE4],
-    'Ä': [0x99, 0xC4],
-    'ô': [0x81, 0x5C, 0x81, 0xF4],
-  };
-
   List<int> encodeWithCustomBytes(String text) {
     List<int> result = [];
     int i = 0;
 
     while (i < text.length) {
-      bool replaced = false;
-
-      for (final entry in replacementToBytes.entries) {
-        final key = entry.key;
-        if (text.substring(i).startsWith(key)) {
-          result.addAll(entry.value);
-          i += key.length;
-          replaced = true;
-          break;
-        }
-      }
-
-      if (!replaced) {
-        result.add(text.codeUnitAt(i)); // ISO 8859-1 / ASCII compatível
-        i++;
-      }
+      result.add(text.codeUnitAt(i)); // ISO 8859-1 / ASCII compatível
+      i++;
     }
 
+    result.addAll(latin1.encode(text)); // codifica corretamente com acentos
     result.add(0); // null terminator
     return result;
   }
 
   //Aqui é aonde fica as conversões que o conversor não consegue ler na tradução
   void _sanitizeCustomSequences() {
-    final replacements = {
-      [0x99, 0xAA]: '™ª',
-      [0x99, 0xA5]: '™¥',
-      [0x99, 0x96]: '™–',
-      [0x99, 0x9B]: '™›',
-      [0x99, 0x87]: '™‡',
-      [0x99, 0xA1]: '™¡',
-      [0x99, 0xA7]: '™§',
-      [0x99, 0xE4]: 'ä',
-      [0x99, 0xC4]: 'Ä',
-      [0x81, 0x5C, 0x81, 0xF4]: 'ô'
-    };
-
     final newData = <int>[];
     int i = 0;
     while (i < data.length) {
-      bool matched = false;
-
-      for (final entry in replacements.entries) {
-        final bytes = entry.key;
-        if (i + bytes.length <= data.length &&
-            const ListEquality().equals(data.sublist(i, i + bytes.length), bytes)) {
-          final replacement = entry.value.codeUnits;
-          newData.addAll(replacement);
-          i += bytes.length;
-          matched = true;
-          break;
-        }
-      }
-
-      if (!matched) {
-        newData.add(data[i]);
-        i++;
-      }
+      newData.add(data[i]);
+      i++;
     }
 
     data = Uint8List.fromList(newData);
@@ -106,38 +52,13 @@ class HexEditor {
     }
 
     // Converta de volta os bytes especiais para símbolos
-    final specialBytesToChar = {
-      [0x99, 0xAA]: '™ª', //ó
-      [0x99, 0xA5]: '™¥', //í
-      [0x99, 0x96]: '™–', //Ú
-      [0x99, 0x9B]: '™›', //á
-      [0x99, 0x87]: '™‡', //É
-      [0x99, 0xA1]: '™¡', //é
-      [0x99, 0xA7]: '™§', //ï
-      [0x99, 0xE4]: 'ä', //ä
-      [0x99, 0xC4]: 'Ä', //Ä
-      [0x81, 0x5C, 0x81, 0xF4]: 'ô', //----
-    };
 
     final result = StringBuffer();
     int i = 0;
 
     while (i < bytes.length) {
-      bool matched = false;
-      for (final entry in specialBytesToChar.entries) {
-        final b = entry.key;
-        if (i + b.length <= bytes.length &&
-            const ListEquality().equals(bytes.sublist(i, i + b.length), b)) {
-          result.write(entry.value);
-          i += b.length;
-          matched = true;
-          break;
-        }
-      }
-      if (!matched) {
-        result.writeCharCode(bytes[i]);
-        i++;
-      }
+      result.writeCharCode(bytes[i]);
+      i++;
     }
 
     return result.toString();
@@ -145,6 +66,7 @@ class HexEditor {
 
 
   void _extractStrings() {
+    strings.clear();
     for (int i = 0; i < data.length - 1; i++) {
       if (data[i] != 0) {
         final str = _readStringAtOffset(i);
@@ -169,9 +91,9 @@ class HexEditor {
   void editString(int oldOffset, String newText) {
     if (!strings.containsKey(oldOffset)) return;
 
-    Uint8List newStringBytes = Uint8List.fromList(encodeWithCustomBytes(newText));
+    Uint8List newStringBytes = Uint8List.fromList(latin1.encode(newText) + [0]);
     String oldText = strings[oldOffset]!;
-    int oldLength = utf8.encode(oldText).length + 1; // real length in bytes
+    int oldLength = latin1.encode(oldText).length + 1; // real length in bytes
     int shiftAmount = newStringBytes.length - oldLength;
 
     // Criar novo buffer considerando realocação de todos os dados após o texto editado
@@ -217,9 +139,8 @@ class HexEditor {
     }
 
     // Reextrair strings e ponteiros com base no novo conteúdo
-    _extractStrings();           // Primeiro extrai as strings
-    _sanitizeCustomSequences(); // Depois sanitiza as strings extraídas
-    _extractPointers();         // Por fim, extrai os ponteiros (opcionalmente)
+    _extractStrings();
+    _extractPointers();
   }
 
 
@@ -385,16 +306,26 @@ class _HexEditorScreenState extends State<HexEditorScreen> {
                     minLines: 9,
                     controller: textController,
                   ),
-                  ElevatedButton(
-                    onPressed: () {
-                      if (selectedOffset != null) {
+                  Row(
+                    children: [
+                      IconButton(onPressed: () async {
+                        textController.text = await TradutorClass(textController.text);
                         setState(() {
-                          editor.editString(selectedOffset!, textController.text);
-                          selectedOffset = null;
+
                         });
-                      }
-                    },
-                    child: Text("Salvar"),
+                      }, icon: Icon(Icons.translate)),
+                      ElevatedButton(
+                        onPressed: () {
+                          if (selectedOffset != null) {
+                            setState(() {
+                              editor.editString(selectedOffset!, textController.text);
+                              selectedOffset = null;
+                            });
+                          }
+                        },
+                        child: Text("Salvar"),
+                      ),
+                    ],
                   ),
                 ],
               ),
