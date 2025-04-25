@@ -239,6 +239,26 @@ class HexEditor {
             extractedString.contains('') ||
             extractedString.contains('') ||
             extractedString.contains('') ||
+            extractedString.contains('') ||
+            extractedString.contains('') ||
+            extractedString.contains('') ||
+            extractedString.contains('') ||
+            extractedString.contains('') ||
+            extractedString.contains('') ||
+            extractedString.contains('') ||
+            extractedString.contains('') ||
+            extractedString.contains('') ||
+            extractedString.contains('§') ||
+            extractedString.contains('') ||
+            extractedString.contains('') ||
+            extractedString.contains('') ||
+            extractedString.contains('') ||
+            extractedString.contains('') ||
+            extractedString.contains('') ||
+            extractedString.contains('¬') ||
+            extractedString.contains('>	') ||
+            extractedString.contains('!	') ||
+            extractedString.contains('®') ||
             extractedString.contains('¤')
         ) {
           print("Exceção encontrada");
