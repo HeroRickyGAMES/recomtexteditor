@@ -229,7 +229,18 @@ class HexEditor {
             extractedString.contains('') ||
             extractedString.contains('') ||
             extractedString.contains('') ||
-            extractedString.contains('')) {
+            extractedString.contains('') ||
+            extractedString.contains('MVS') ||
+            extractedString.contains('') ||
+            extractedString.contains('') ||
+            extractedString.contains('') ||
+            extractedString.contains('') ||
+            extractedString.contains('') ||
+            extractedString.contains('') ||
+            extractedString.contains('') ||
+            extractedString.contains('') ||
+            extractedString.contains('¤')
+        ) {
           print("Exceção encontrada");
           continue;
         }
