@@ -17,25 +17,25 @@ class HexEditor {
   }
 
   void _extractStrings() {  strings.clear();
-    for (int i = 0; i < data.length; i++) {
-      if (data[i] >= 32 && data[i] <= 126 || data[i] >= 160) {
-        final start = i;
-        while (i < data.length && data[i] != 0 && (data[i] >= 32 && data[i] <= 126 || data[i] >= 160)) {
-          i++;
-        }
-
-        final end = i;
-        if (end - start < 3) continue; // ignora strings muito curtas
-
-        final strBytes = data.sublist(start, end);
-        String extractedString = latin1.decode(strBytes);
-
-        // Filtra caracteres suspeitos como você já faz
-        if (_isSuspeita(extractedString)) continue;
-
-        strings[start] = extractedString;
+  for (int i = 0; i < data.length; i++) {
+    if (data[i] >= 32 && data[i] <= 126 || data[i] >= 160) {
+      final start = i;
+      while (i < data.length && data[i] != 0 && (data[i] >= 32 && data[i] <= 126 || data[i] >= 160)) {
+        i++;
       }
+
+      final end = i;
+      if (end - start < 3) continue; // ignora strings muito curtas
+
+      final strBytes = data.sublist(start, end);
+      String extractedString = latin1.decode(strBytes);
+
+      // Filtra caracteres suspeitos como você já faz
+      if (_isSuspeita(extractedString)) continue;
+
+      strings[start] = extractedString;
     }
+  }
   }
 
   bool _isSuspeita(String s) {
@@ -44,25 +44,10 @@ class HexEditor {
 
   void _extractPointers() {
     pointers.clear();
-
-    if (data.length < 4) {
-      print("Arquivo muito pequeno para conter tabela de ponteiros.");
-      return;
-    }
-
-    int pointerCount = ByteData.sublistView(data, 0, 4).getUint32(0, Endian.little);
-
-    for (int i = 0; i < pointerCount; i++) {
-      int pointerOffset = 4 + i * 4;
-      if (pointerOffset + 4 > data.length) {
-        print("Ponteiro fora do arquivo, parando leitura.");
-        break;
-      }
-
-      int stringOffset = ByteData.sublistView(data, pointerOffset).getUint32(0, Endian.little);
-
-      if (stringOffset < data.length) {
-        pointers[pointerOffset] = stringOffset;
+    for (int i = 0; i <= data.length - 4; i++) {
+      int value = ByteData.sublistView(data, i).getUint32(0, Endian.little);
+      if (strings.containsKey(value)) {
+        pointers[i] = value;
       }
     }
   }
@@ -176,11 +161,11 @@ class _HexInputScreenState extends State<HexInputScreen> {
                 ),
               ),
               SizedBox(height: 10),
-
+              ElevatedButton(onPressed: _processHex, child: Text("Carregar")),
             ],
           ),
         ),
-      ),floatingActionButton: ElevatedButton(onPressed: _processHex, child: Text("Carregar")),
+      ),
     );
   }
 }
@@ -210,14 +195,6 @@ class _HexEditorScreenState extends State<HexEditorScreen> {
 
   @override
   Widget build(BuildContext context) {
-    List<MapEntry<int, int>> orderedPointers = editor.pointers.entries.toList()
-      ..sort((a, b) => a.key.compareTo(b.key)); // ordena pela ordem na tabela de ponteiros
-
-    var filtered = orderedPointers.where((entry) {
-      final string = editor.strings[entry.value];
-      return string != null && string.toLowerCase().contains(searchQuery);
-    }).toList();
-
     return Scaffold(
       appBar: AppBar(
         title: Text("Hex Editor"),
@@ -257,17 +234,15 @@ class _HexEditorScreenState extends State<HexEditorScreen> {
           Expanded(
             flex: 2,
             child: ListView.builder(
-              itemCount: filtered.length,
+              itemCount: editor.strings.entries.where((entry) => entry.value.toLowerCase().contains(searchQuery)).length,
               itemBuilder: (context, index) {
-                int pointerOffset = filtered[index].key;
-                int stringOffset = filtered[index].value;
-                String value = editor.strings[stringOffset] ?? '';
                 var entry = editor.strings.entries.elementAt(index);
                 var filteredEntries = editor.strings.entries.where((entry) => entry.value.toLowerCase().contains(searchQuery)).toList();
                 int offset = filteredEntries[index].key;
+                String value = filteredEntries[index].value;
                 return ListTile(
                   title: Text(
-                      "Pointer @ 0x${pointerOffset.toRadixString(16).toUpperCase()} → Offset 0x${stringOffset.toRadixString(16).toUpperCase()} - $value",
+                    "Offset: 0x${offset.toRadixString(16).toUpperCase()} - $value",
                     style: TextStyle(
                       color: entry.value.contains('----') ? Colors.amber : Colors.white,
                       fontWeight: entry.value.contains('----') ? FontWeight.bold : FontWeight.normal,
