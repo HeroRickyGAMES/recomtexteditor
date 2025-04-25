@@ -167,6 +167,44 @@ class HexEditor {
       }
     }
     data = Uint8List.fromList(sanitized);
+
+    // ... outras definições de padrões e substituições ...
+
+    for (int i = 0; i < data.length;) {
+      bool shouldSkip = false;
+
+      // Verificar se o byte corrente é um ponteiro para caracteres "estranhos"
+      if (pointers.containsKey(i)) {
+        int pointerValue = pointers[i]!;
+        if (strings.containsKey(pointerValue)) {
+          String targetString = strings[pointerValue]!;
+
+          // Se a string no ponteiro contiver um caractere não desejado, substituir
+          if (targetString.contains('----')) {
+            sanitized.addAll(replacement);
+            i += 4;  // Avançar os bytes do ponteiro
+            shouldSkip = true;
+          }
+        }
+      }
+
+      // Se não for um ponteiro, aplicar sanitização normal
+      if (!shouldSkip) {
+        if (i + 3 < data.length &&
+            data[i] == pattern[0] &&
+            data[i + 1] == pattern[1] &&
+            data[i + 2] == pattern[2] &&
+            data[i + 3] == pattern[3]) {
+          sanitized.addAll(replacement);
+          i += 4;
+        } else {
+          sanitized.add(data[i]);
+          i++;
+        }
+      }
+    }
+
+    data = Uint8List.fromList(sanitized);
   }
 
   void _extractStrings() {
@@ -176,9 +214,34 @@ class HexEditor {
         final start = i;
         while (i < data.length && data[i] != 0) i++;
         final strBytes = data.sublist(start, i);
-        if (strBytes.isNotEmpty) {
-          strings[start] = latin1.decode(strBytes);
+        if (strBytes.isEmpty) continue;
+
+        String extractedString = latin1.decode(strBytes);
+
+        // Filtro de padrões suspeitos
+        if (extractedString.contains("@CTD") ||
+            extractedString.contains('ÿ') ||
+            extractedString.contains('à') ||
+            extractedString.contains('') ||
+            extractedString.contains('@') ||
+            extractedString.contains('¨') ||
+            extractedString.contains('') ||
+            extractedString.contains('') ||
+            extractedString.contains('') ||
+            extractedString.contains('') ||
+            extractedString.contains('')) {
+          print("Exceção encontrada");
+          continue;
         }
+
+        // Filtro de strings muito curtas
+        if (extractedString.length <= 2) continue;
+
+        print(extractedString.length);
+        print("String extraída: $extractedString");
+
+        // Armazena a string se passou nos filtros
+        strings[start] = extractedString;
       }
     }
   }
