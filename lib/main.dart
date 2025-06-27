@@ -122,13 +122,11 @@ class HexEditor {
       }
     }
 
-    // 2. Encontra os ponteiros que apontam para os textos que achamos
-    for (int i = 0; i < data.length - 3; i++) {
-      int pointerValue = ByteData.sublistView(data, i).getUint32(0, Endian.little);
-      int stringAddress = pointerValue +- POINTER_VALUE_OFFSET;
-
-      if (strings.containsKey(stringAddress)) {
-        pointers[i] = stringAddress;
+    pointers.clear();
+    for (int i = 0; i <= data.length - 4; i++) {
+      int value = ByteData.sublistView(data, i).getUint32(0, Endian.little);
+      if (strings.containsKey(value)) {
+        pointers[i] = value;
       }
     }
   }
@@ -141,9 +139,16 @@ class HexEditor {
     final String oldText = strings[offsetOfStringToEdit]!;
     final Uint8List oldTextBytes = _encodeStringToBytes(oldText);
     final Uint8List newTextBytes = _encodeStringToBytes(newText);
-    final int oldLengthInFile = oldTextBytes.length;
-    final int newLengthInFile = newTextBytes.length;
+    final int oldLengthInFile = oldTextBytes.length + 1; // +1 para o terminador nulo
+    final int newLengthInFile = newTextBytes.length + 1;
     final int shiftAmount = newLengthInFile - oldLengthInFile;
+
+    // Se não houve mudança no tamanho, apenas atualize o texto
+    if (shiftAmount == 0) {
+      data.setRange(offsetOfStringToEdit, offsetOfStringToEdit + newTextBytes.length, newTextBytes);
+      strings[offsetOfStringToEdit] = newText;
+      return;
+    }
 
     // 2. Criação do Novo Buffer
     final Uint8List newData = Uint8List(data.length + shiftAmount);
@@ -164,36 +169,61 @@ class HexEditor {
     }
 
     // 4. Atualização dos Ponteiros
-    final Map<int, int> newStringOffsets = {};
-    for (int oldAddr in strings.keys) {
-      if (oldAddr > offsetOfStringToEdit) {
-        print('$oldAddr $shiftAmount');
-        newStringOffsets[oldAddr] = oldAddr + shiftAmount;
-      } else {
-        newStringOffsets[oldAddr] = oldAddr;
-      }
-    }
-
     for (var pEntry in pointers.entries) {
       int pointerAddress = pEntry.key;
       int oldStringAddress = pEntry.value;
 
-      int finalPointerAddress = pointerAddress;
-      if (pointerAddress > offsetOfStringToEdit) {
-        finalPointerAddress += shiftAmount;
+      // Se o ponteiro aponta para a string que estamos editando
+      if (oldStringAddress == offsetOfStringToEdit) {
+        // Mantém apontando para o mesmo local (o conteúdo foi substituído)
+        ByteData.sublistView(newData, pointerAddress).setUint32(0, oldStringAddress, Endian.little);
       }
-
-      if (newStringOffsets.containsKey(oldStringAddress) && finalPointerAddress + 4 <= newData.length) {
-        int newStringAddress = newStringOffsets[oldStringAddress]!;
-        int newPointerValue = newStringAddress - POINTER_VALUE_OFFSET;
-
-        ByteData.sublistView(newData, finalPointerAddress).setUint32(0, newPointerValue, Endian.little);
+      // Se o ponteiro aponta para depois da string editada
+      else if (oldStringAddress > offsetOfStringToEdit) {
+        // Ajusta o valor do ponteiro pelo shiftAmount
+        int newPointerValue = oldStringAddress + shiftAmount;
+        ByteData.sublistView(newData, pointerAddress).setUint32(0, newPointerValue, Endian.little);
+      } else {
+        // Ponteiros para strings antes da editada permanecem inalterados
+        ByteData.sublistView(newData, pointerAddress).setUint32(0, oldStringAddress, Endian.little);
       }
     }
 
-    // 5. Finaliza a operação
+    // 5. Atualiza as estruturas internas
     data = newData;
-    extractData();
+
+    // 6. Reconstroi os mapas de strings e ponteiros
+    strings.clear();
+    pointers.clear();
+
+    // Extrai as strings novamente
+    final Set<int> foundStringOffsets = {};
+    for (int i = STRING_TABLE_START; i < data.length; i++) {
+      if (foundStringOffsets.contains(i) || data[i] == 0) continue;
+
+      final start = i;
+      int end = i;
+      while (end < data.length && data[end] != 0) {
+        end++;
+      }
+
+      if (end > start) {
+        final strBytes = data.sublist(start, end);
+        strings[start] = _decodeBytesToString(strBytes);
+        for (int j = start; j <= end; j++) {
+          foundStringOffsets.add(j);
+        }
+        i = end;
+      }
+    }
+
+    // Reconstroi os ponteiros
+    for (int i = 0; i <= data.length - 4; i++) {
+      int value = ByteData.sublistView(data, i).getUint32(0, Endian.little);
+      if (strings.containsKey(value)) {
+        pointers[i] = value;
+      }
+    }
   }
 
   String exportHex() => hex.encode(data);
