@@ -10,105 +10,181 @@ class HexEditor {
   Map<int, String> strings = {};
   Map<int, int> pointers = {};
 
+  // Regex para encontrar nossos placeholders, ex: [C:F567]
+  final RegExp _controlCodeRegex = RegExp(r'\[C:([0-9A-Fa-f]+)\]');
+
   HexEditor(String hexString)
       : data = Uint8List.fromList(hex.decode(hexString)) {
     _extractStrings();
     _extractPointers();
   }
 
-  void _extractStrings() {  strings.clear();
-  for (int i = 0; i < data.length; i++) {
-    if (data[i] >= 32 && data[i] <= 126 || data[i] >= 160) {
-      final start = i;
-      while (i < data.length && data[i] != 0 && (data[i] >= 32 && data[i] <= 126 || data[i] >= 160)) {
-        i++;
+  // Decodifica os bytes para uma string com placeholders
+  String _decodeBytesToString(Uint8List bytes) {
+    StringBuffer sb = StringBuffer();
+    for (int i = 0; i < bytes.length; i++) {
+      int byte = bytes[i];
+      // Heurística para detectar um código de controle (byte > 127)
+      // O jogo parece usar códigos de 2 bytes começando com Fx
+      if (byte >= 0xF0 && byte <= 0xFF && i + 1 < bytes.length) {
+        int nextByte = bytes[i+1];
+        // Adiciona como um placeholder
+        sb.write('[C:${byte.toRadixString(16).toUpperCase()}${nextByte.toRadixString(16).toUpperCase()}]');
+        i++; // Pula o próximo byte, pois já foi consumido
+      } else if (byte >= 32 && byte <= 126) {
+        // Caractere ASCII padrão
+        sb.write(latin1.decode([byte]));
+      } else {
+        // Se for outro caractere especial, represente-o também
+        sb.write('[C:${byte.toRadixString(16).toUpperCase()}]');
+      }
+    }
+    return sb.toString();
+  }
+
+  // Codifica a string com placeholders de volta para os bytes originais
+  Uint8List _encodeStringToBytes(String text) {
+    List<int> byteList = [];
+    int lastIndex = 0;
+
+    for (final match in _controlCodeRegex.allMatches(text)) {
+      // Adiciona o texto normal que veio antes do placeholder
+      if (match.start > lastIndex) {
+        byteList.addAll(latin1.encode(text.substring(lastIndex, match.start)));
       }
 
-      final end = i;
-      if (end - start < 3) continue; // ignora strings muito curtas
+      // Converte o placeholder (ex: "F567") de volta para bytes
+      String hexValue = match.group(1)!;
+      byteList.addAll(hex.decode(hexValue));
 
-      final strBytes = data.sublist(start, end);
-      String extractedString = latin1.decode(strBytes);
-
-      // Filtra caracteres suspeitos como você já faz
-      if (_isSuspeita(extractedString)) continue;
-
-      strings[start] = extractedString;
+      lastIndex = match.end;
     }
-  }
+
+    // Adiciona qualquer texto restante após o último placeholder
+    if (lastIndex < text.length) {
+      byteList.addAll(latin1.encode(text.substring(lastIndex)));
+    }
+
+    return Uint8List.fromList(byteList);
   }
 
-  bool _isSuspeita(String s) {
-    return s.contains(RegExp(r'[@ÿà¨\x01-\x1F§®¤]')) || s.length <= 2;
+  void _extractStrings() {
+    strings.clear();
+    final Set<int> usedBytes = {};
+
+    for (int i = 0; i < data.length; i++) {
+      if (usedBytes.contains(i)) continue;
+
+      // Um caractere válido inicia uma possível string (ASCII imprimível)
+      if (data[i] >= 32 && data[i] <= 126) {
+        final start = i;
+        int end = i;
+
+        // Uma string termina com um byte nulo (0x00)
+        while (end < data.length && data[end] != 0) {
+          end++;
+        }
+
+        if (end - start < 3) continue;
+
+        final strBytes = data.sublist(start, end);
+        // Usa nosso decodificador customizado
+        String extractedString = _decodeBytesToString(strBytes);
+
+        if (extractedString.trim().isEmpty) continue;
+
+        strings[start] = extractedString;
+
+        for (int j = start; j <= end; j++) {
+          usedBytes.add(j);
+        }
+        i = end;
+      }
+    }
   }
 
   void _extractPointers() {
     pointers.clear();
+    if (strings.isEmpty) return;
+
+    // Procura em todo o arquivo
     for (int i = 0; i <= data.length - 4; i++) {
+      // Lê um valor de 4 bytes (little-endian)
       int value = ByteData.sublistView(data, i).getUint32(0, Endian.little);
+      // Se o valor corresponde ao endereço de início de uma string, é um ponteiro
       if (strings.containsKey(value)) {
         pointers[i] = value;
       }
     }
   }
 
-  void editString(int oldOffset, String newText) {
-    if (!strings.containsKey(oldOffset)) return;
+  void editString(int offsetOfStringToEdit, String newText) {
+    if (!strings.containsKey(offsetOfStringToEdit)) return;
 
-    Uint8List newStringBytes =  Uint8List.fromList(latin1.encode(newText) + [0x00]);
-    String oldText = strings[oldOffset]!;
-    int oldLength = latin1.encode(oldText).length + 1; // real length in bytes
-    int shiftAmount = 0;
+    // 1. Calcular as diferenças usando o nosso ENCODER customizado
+    final String oldText = strings[offsetOfStringToEdit]!;
+    final Uint8List oldTextBytes = _encodeStringToBytes(oldText);
+    final Uint8List newTextBytes = _encodeStringToBytes(newText);
 
-    shiftAmount = newStringBytes.length - oldLength;
+    final int oldLengthInFile = oldTextBytes.length + 1;
+    final int newLengthInFile = newTextBytes.length + 1;
+    final int shiftAmount = newLengthInFile - oldLengthInFile;
 
-    // Criar novo buffer considerando realocação de todos os dados após o texto editado
-    Uint8List newData = Uint8List(data.length + shiftAmount);
-    int insertPos = 0;
+    // 2. Construir o novo buffer de dados (newData)
+    final Uint8List newData = Uint8List(data.length + shiftAmount);
 
-    // Copiar dados antes do texto editado
-    newData.setRange(0, oldOffset, data.sublist(0, oldOffset));
-    insertPos += oldOffset;
+    newData.setRange(0, offsetOfStringToEdit, data.sublist(0, offsetOfStringToEdit));
 
-    // Inserir novo texto
-    newData.setRange(insertPos, insertPos + newStringBytes.length, newStringBytes);
-    insertPos += newStringBytes.length;
+    newData.setRange(offsetOfStringToEdit, offsetOfStringToEdit + newTextBytes.length, newTextBytes);
+    newData[offsetOfStringToEdit + newTextBytes.length] = 0x00; // Terminador nulo
 
-    // Copiar o restante dos dados ajustando os offsets
-    newData.setRange(insertPos, newData.length, data.sublist(oldOffset + oldLength));
+    int originalDataTailStart = offsetOfStringToEdit + oldLengthInFile;
+    int newDataTailStart = offsetOfStringToEdit + newLengthInFile;
+    newData.setRange(newDataTailStart, newData.length, data.sublist(originalDataTailStart));
 
-    // Atualiza ponteiros (relocando todos que estavam APÓS o texto original)
-    Map<int, int> updatedPointers = {};
-    for (var entry in pointers.entries) {
-      int pointerAddress = entry.key;
-      int pointerValue = entry.value;
-
-      // Recalcular valores dos ponteiros após a realocação
-      if (pointerValue > oldOffset) {
-        pointerValue += shiftAmount;
-      }
-      if (pointerAddress > oldOffset) {
-        pointerAddress += shiftAmount;
-      }
-
-      updatedPointers[pointerAddress] = pointerValue;
+    // 3. Atualizar todos os ponteiros e strings que foram deslocados
+    final Map<int, int> updatedStringOffsets = {};
+    for (var entry in strings.entries) {
+      int oldStringAddr = entry.key;
+      updatedStringOffsets[oldStringAddr] = (oldStringAddr > offsetOfStringToEdit)
+          ? oldStringAddr + shiftAmount
+          : oldStringAddr;
     }
 
-    data = newData;
-    pointers = updatedPointers;
-
-    // Aplicar os ponteiros atualizados na memória
+    final Map<int, int> updatedPointers = {};
     for (var entry in pointers.entries) {
-      if (entry.key + 4 <= data.length) {
-        ByteData.sublistView(data, entry.key).setUint32(0, entry.value, Endian.little);
+      int oldPointerAddr = entry.key;
+      int oldPointerValue = entry.value;
+
+      int newPointerAddr = (oldPointerAddr > offsetOfStringToEdit) ? oldPointerAddr + shiftAmount : oldPointerAddr;
+      int newPointerValue = (oldPointerValue > offsetOfStringToEdit) ? oldPointerValue + shiftAmount : oldPointerValue;
+
+      updatedPointers[newPointerAddr] = newPointerValue;
+    }
+
+    // 4. Aplicar os valores dos ponteiros atualizados no `newData`
+    for (var entry in updatedPointers.entries) {
+      if (entry.key + 4 <= newData.length) {
+        ByteData.sublistView(newData, entry.key).setUint32(0, entry.value, Endian.little);
       }
     }
 
-    // Reextrair strings e ponteiros com base no novo conteúdo
-    _extractStrings();
-    _extractPointers();
+    // 5. Atualizar o estado interno da classe
+    this.data = newData;
+
+    final Map<int, String> newStringsMap = {};
+    for (var entry in strings.entries) {
+      int newOffset = updatedStringOffsets[entry.key]!;
+      String text = (entry.key == offsetOfStringToEdit) ? newText : entry.value;
+      newStringsMap[newOffset] = text;
+    }
+
+    this.strings = newStringsMap;
+    this.pointers = updatedPointers;
+
+    var sortedEntries = strings.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
+    this.strings = Map.fromEntries(sortedEntries);
   }
-
 
   String exportHex() => hex.encode(data);
 }
@@ -117,7 +193,12 @@ void main() {
   runApp(HexEditorApp());
 }
 
-class HexEditorApp extends StatelessWidget {
+class HexEditorApp extends StatefulWidget {
+  @override
+  State<HexEditorApp> createState() => _HexEditorAppState();
+}
+
+class _HexEditorAppState extends State<HexEditorApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
