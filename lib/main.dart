@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:convert/convert.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:recomtexteditor/main.dart';
 import 'package:recomtexteditor/tradutor.dart';
 
 // =======================================================================
@@ -196,6 +197,9 @@ class HexInputScreen extends StatefulWidget {
 
 class _HexInputScreenState extends State<HexInputScreen> {
   final TextEditingController hexController = TextEditingController();
+  final TextEditingController POINTER_TABLE_STARTCONTROLLER = TextEditingController();
+  final TextEditingController POINTER_TABLE_ENDCONTROLLER = TextEditingController();
+  final TextEditingController POINTER_BASE_ADDRESSCONTROLLER = TextEditingController();
 
   void _processHex() {
     if (hexController.text.isEmpty) return;
@@ -228,6 +232,27 @@ class _HexInputScreenState extends State<HexInputScreen> {
               ),
             ),
             SizedBox(height: 10),
+            TextField(
+              controller: POINTER_TABLE_STARTCONTROLLER,
+              decoration: InputDecoration(
+                hintText: "Inicio dos ponteiros em Hexadecimal",
+                border: OutlineInputBorder(),
+              ),
+            ),
+            TextField(
+              controller: POINTER_TABLE_ENDCONTROLLER,
+              decoration: InputDecoration(
+                hintText: "Fim dos ponteiros em Hexadecimal",
+                border: OutlineInputBorder(),
+              ),
+            ),
+            TextField(
+              controller: POINTER_BASE_ADDRESSCONTROLLER,
+              decoration: InputDecoration(
+                hintText: "Endereço dos ponteiros em Hexadecimal",
+                border: OutlineInputBorder(),
+              ),
+            ),
             ElevatedButton(onPressed: _processHex, child: Text("Analisar Arquivo")),
           ],
         ),
