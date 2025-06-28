@@ -3,26 +3,43 @@ import 'dart:typed_data';
 import 'package:convert/convert.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:recomtexteditor/main.dart';
-import 'package:recomtexteditor/tradutor.dart';
+import 'package:translator_plus/translator_plus.dart';
 
 // =======================================================================
 // CLASSE DE TRADUÇÃO
 // =======================================================================
 // Programado por HeroRickyGAMES com a ajuda de Deus!
+final translator = GoogleTranslator();
+
+Future<String> TradutorClass(String Texto) async {
+  try {
+    if (Texto.trim().isEmpty) {
+      return "";
+    }
+    final translation = await translator.translate(Texto, from: 'en', to: 'pt');
+    return translation.text;
+  } catch (e) {
+    print("Erro na tradução: $e");
+    return Texto; // Retorna o texto original em caso de erro
+  }
+}
+
 // =======================================================================
-// CLASSE PRINCIPAL DO EDITOR HEXADECIMAL (LÓGICA FINAL E CORRETA)
+// CLASSE PRINCIPAL DO EDITOR HEXADECIMAL (LÓGICA INTELIGENTE)
 // =======================================================================
 class HexEditor {
   Uint8List data;
   Map<int, String> strings = SplayTreeMap<int, String>();
   Map<int, int> pointers = SplayTreeMap<int, int>(); // {endereco_do_ponteiro: endereco_ABSOLUTO_da_string}
 
-  // REGRAS FIXAS baseadas na nossa análise
-  static const int POINTER_TABLE_START = 0x194;
-  static const int POINTER_TABLE_END = 0x0A74;
-  // A BASE para o cálculo dos ponteiros relativos é 0x0A70.
-  static const int POINTER_BASE_ADDRESS = 0x0A70;
+  // Offsets fixos no header onde as informações importantes são encontradas.
+  static const int HEADER_POINTER_TABLE_START_OFFSET = 0x08;
+  static const int HEADER_POINTER_BASE_ADDRESS_OFFSET = 0x0C;
+
+  // Variáveis que serão preenchidas dinamicamente a partir do header.
+  late int pointerTableStart;
+  late int pointerTableEnd;
+  late int pointerBaseAddress;
 
   late final Map<int, String> _byteToChar;
   late final Map<String, int> _charToByte;
@@ -30,7 +47,33 @@ class HexEditor {
   HexEditor(String hexString)
       : data = Uint8List.fromList(hex.decode(hexString)) {
     _buildCharMap();
+    _analyzeHeader(); // Analisa o header para encontrar os offsets dinamicamente.
     extractData();
+  }
+
+  /// NOVO MÉTODO INTELIGENTE: Analisa o header do arquivo para encontrar os offsets.
+  void _analyzeHeader() {
+    try {
+      // Lê os endereços diretamente do header do arquivo.
+      pointerTableStart = data.buffer.asByteData().getUint32(HEADER_POINTER_TABLE_START_OFFSET, Endian.little) + 4;
+      pointerBaseAddress = data.buffer.asByteData().getUint32(HEADER_POINTER_BASE_ADDRESS_OFFSET, Endian.little);
+
+      // A lógica consistente mostra que o fim da tabela de ponteiros é 4 bytes após a base.
+      pointerTableEnd = pointerBaseAddress + 4;
+
+      print("--- Análise do Header ---");
+      print("Tabela de Ponteiros Inicia em: 0x${pointerTableStart.toRadixString(16)}");
+      print("Tabela de Ponteiros Termina em: 0x${pointerTableEnd.toRadixString(16)}");
+      print("Base dos Ponteiros: 0x${pointerBaseAddress.toRadixString(16)}");
+      print("--------------------------");
+
+    } catch (e) {
+      print("Erro ao analisar o header. Usando valores de fallback. Erro: $e");
+      // Fallback para o arquivo original em caso de erro.
+      pointerTableStart = 0x194;
+      pointerTableEnd = 0x0A74;
+      pointerBaseAddress = 0x0A70;
+    }
   }
 
   void _buildCharMap() {
@@ -103,9 +146,9 @@ class HexEditor {
     strings.clear();
     pointers.clear();
 
-    for (int i = POINTER_TABLE_START; i < POINTER_TABLE_END && i <= data.length - 4; i += 4) {
+    for (int i = pointerTableStart; i < pointerTableEnd && i <= data.length - 4; i += 4) {
       int relativeOffset = data.buffer.asByteData().getUint32(i, Endian.little);
-      int absoluteAddress = POINTER_BASE_ADDRESS + relativeOffset;
+      int absoluteAddress = pointerBaseAddress + relativeOffset;
 
       if (absoluteAddress < data.length) {
         pointers[i] = absoluteAddress;
@@ -157,7 +200,7 @@ class HexEditor {
         newAbsoluteStringAddress += shiftAmount;
       }
 
-      int newRelativeOffset = newAbsoluteStringAddress - POINTER_BASE_ADDRESS;
+      int newRelativeOffset = newAbsoluteStringAddress - pointerBaseAddress;
 
       if (pointerAddress < newData.length - 3) {
         newData.buffer.asByteData().setUint32(pointerAddress, newRelativeOffset, Endian.little);
@@ -165,10 +208,10 @@ class HexEditor {
     });
 
     data = newData;
+    _analyzeHeader();
     extractData();
   }
 
-  // NOVO MÉTODO: Traduz todas as strings do arquivo.
   String exportHex() => hex.encode(data);
 }
 
@@ -197,9 +240,6 @@ class HexInputScreen extends StatefulWidget {
 
 class _HexInputScreenState extends State<HexInputScreen> {
   final TextEditingController hexController = TextEditingController();
-  final TextEditingController POINTER_TABLE_STARTCONTROLLER = TextEditingController();
-  final TextEditingController POINTER_TABLE_ENDCONTROLLER = TextEditingController();
-  final TextEditingController POINTER_BASE_ADDRESSCONTROLLER = TextEditingController();
 
   void _processHex() {
     if (hexController.text.isEmpty) return;
@@ -232,27 +272,6 @@ class _HexInputScreenState extends State<HexInputScreen> {
               ),
             ),
             SizedBox(height: 10),
-            TextField(
-              controller: POINTER_TABLE_STARTCONTROLLER,
-              decoration: InputDecoration(
-                hintText: "Inicio dos ponteiros em Hexadecimal",
-                border: OutlineInputBorder(),
-              ),
-            ),
-            TextField(
-              controller: POINTER_TABLE_ENDCONTROLLER,
-              decoration: InputDecoration(
-                hintText: "Fim dos ponteiros em Hexadecimal",
-                border: OutlineInputBorder(),
-              ),
-            ),
-            TextField(
-              controller: POINTER_BASE_ADDRESSCONTROLLER,
-              decoration: InputDecoration(
-                hintText: "Endereço dos ponteiros em Hexadecimal",
-                border: OutlineInputBorder(),
-              ),
-            ),
             ElevatedButton(onPressed: _processHex, child: Text("Analisar Arquivo")),
           ],
         ),
@@ -285,6 +304,9 @@ class _HexEditorScreenState extends State<HexEditorScreen> {
       setState(() {
         editor.editString(selectedStringAddress!, textController.text);
         selectedStringAddress = null;
+        textController.clear();
+        searchQuery = "";
+        searchController.clear();
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Arquivo modificado e ponteiros realocados!"), duration: Duration(seconds: 2)),
@@ -339,7 +361,9 @@ class _HexEditorScreenState extends State<HexEditorScreen> {
         children: [
           Expanded(
             flex: 2,
-            child: ListView.separated(
+            child: filteredEntries.isEmpty
+                ? Center(child: Text("Nenhuma string encontrada.\nVerifique se o arquivo é compatível."))
+                : ListView.separated(
               itemCount: filteredEntries.length,
               separatorBuilder: (context, index) => Divider(height: 1, color: Colors.grey[800]),
               itemBuilder: (context, index) {
