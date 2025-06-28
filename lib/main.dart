@@ -6,18 +6,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 // =======================================================================
-// CLASSE PRINCIPAL DO EDITOR HEXADECIMAL
+// CLASSE PRINCIPAL DO EDITOR HEXADECIMAL (LÓGICA CORRETA)
 // =======================================================================
 class HexEditor {
   Uint8List data;
-  // Usar SplayTreeMap garante que os mapas estejam sempre ordenados pelas chaves (offsets)
   Map<int, String> strings = SplayTreeMap<int, String>();
-  Map<int, int> pointers = SplayTreeMap<int, int>(); // {endereco_do_ponteiro: endereco_da_string}
+  Map<int, int> pointers = SplayTreeMap<int, int>(); // {endereco_do_ponteiro: endereco_ABSOLUTO_da_string}
 
   // REGRAS FIXAS baseadas na nossa análise
+  static const int POINTER_TABLE_START = 0x194;
   static const int POINTER_TABLE_END = 0x0A74;
   static const int STRING_TABLE_START = 0x0A74;
-  static const int POINTER_VALUE_OFFSET = 4;
 
   late final Map<int, String> _byteToChar;
   late final Map<String, int> _charToByte;
@@ -28,7 +27,6 @@ class HexEditor {
     extractData();
   }
 
-  // Função para mapear caracteres. Permanece correta.
   void _buildCharMap() {
     _byteToChar = {};
     for (int i = 32; i <= 126; i++) {
@@ -43,7 +41,6 @@ class HexEditor {
     _charToByte = {for (var e in _byteToChar.entries) e.value: e.key};
   }
 
-  // Funções de encode/decode com suporte para placeholders.
   String _decodeBytesToString(Uint8List bytes) {
     StringBuffer sb = StringBuffer();
     for (int i = 0; i < bytes.length; i++) {
@@ -96,142 +93,86 @@ class HexEditor {
     return Uint8List.fromList(byteList);
   }
 
-  /// Extração de dados baseada nas regras do arquivo.
+  /// Extração de dados LIDERADA POR PONTEIROS.
   void extractData() {
     strings.clear();
     pointers.clear();
 
-    // 1. Encontra todos os textos na Tabela de Textos
-    final Set<int> foundStringOffsets = {};
-    for (int i = STRING_TABLE_START; i < data.length; i++) {
-      if (foundStringOffsets.contains(i) || data[i] == 0) continue;
+    for (int i = POINTER_TABLE_START; i < POINTER_TABLE_END && i <= data.length - 4; i += 4) {
+      int relativeOffset = ByteData.sublistView(data, i).getUint32(0, Endian.little);
+      int absoluteAddress = STRING_TABLE_START + relativeOffset;
+      pointers[i] = absoluteAddress;
 
-      final start = i;
-      int end = i;
-      while (end < data.length && data[end] != 0) {
-        end++;
-      }
-
-      if (end > start) {
-        final strBytes = data.sublist(start, end);
-        strings[start] = _decodeBytesToString(strBytes);
-        for (int j = start; j <= end; j++) {
-          foundStringOffsets.add(j);
+      if (!strings.containsKey(absoluteAddress) && absoluteAddress < data.length) {
+        int end = absoluteAddress;
+        while (end < data.length && data[end] != 0) {
+          end++;
         }
-        i = end;
-      }
-    }
-
-    pointers.clear();
-    for (int i = 0; i <= data.length - 4; i++) {
-      int value = ByteData.sublistView(data, i).getUint32(0, Endian.little);
-      if (strings.containsKey(value)) {
-        pointers[i] = value;
+        if (end > absoluteAddress) {
+          final strBytes = data.sublist(absoluteAddress, end);
+          strings[absoluteAddress] = _decodeBytesToString(strBytes);
+        } else {
+          strings[absoluteAddress] = "";
+        }
       }
     }
   }
 
-  /// EDIÇÃO FINAL: Reconstrói o arquivo com a lógica correta.
+  /// EDIÇÃO FINAL: Reconstrói o arquivo com a lógica de PONTEIROS RELATIVOS.
   void editString(int offsetOfStringToEdit, String newText) {
     if (!strings.containsKey(offsetOfStringToEdit)) return;
 
-    // 1. Preparação
     final String oldText = strings[offsetOfStringToEdit]!;
     final Uint8List oldTextBytes = _encodeStringToBytes(oldText);
     final Uint8List newTextBytes = _encodeStringToBytes(newText);
-    final int oldLengthInFile = oldTextBytes.length + 1; // +1 para o terminador nulo
+    final int oldLengthInFile = oldTextBytes.length + 1;
     final int newLengthInFile = newTextBytes.length + 1;
     final int shiftAmount = newLengthInFile - oldLengthInFile;
 
-    // Se não houve mudança no tamanho, apenas atualize o texto
     if (shiftAmount == 0) {
-      data.setRange(offsetOfStringToEdit, offsetOfStringToEdit + newTextBytes.length, newTextBytes);
+      data.setRange(
+          offsetOfStringToEdit, offsetOfStringToEdit + newTextBytes.length, newTextBytes);
       strings[offsetOfStringToEdit] = newText;
       return;
     }
 
-    // 2. Criação do Novo Buffer
     final Uint8List newData = Uint8List(data.length + shiftAmount);
-
-    // 3. Operação de Splice (Cortar, Inserir, Colar)
-    // Parte 1: Copia tudo ANTES do texto editado
     newData.setRange(0, offsetOfStringToEdit, data.sublist(0, offsetOfStringToEdit));
-
-    // Parte 2: Insere o NOVO texto
-    newData.setRange(offsetOfStringToEdit, offsetOfStringToEdit + newTextBytes.length, newTextBytes);
+    newData.setRange(
+        offsetOfStringToEdit, offsetOfStringToEdit + newTextBytes.length, newTextBytes);
     newData[offsetOfStringToEdit + newTextBytes.length] = 0x00;
-
-    // Parte 3: Copia e DESLOCA todo o resto do arquivo
     int originalTailStart = offsetOfStringToEdit + oldLengthInFile;
     int newTailStart = offsetOfStringToEdit + newLengthInFile;
     if (originalTailStart < data.length) {
-      newData.setRange(newTailStart, newData.length, data.sublist(originalTailStart));
+      newData.setRange(
+          newTailStart, newData.length, data.sublist(originalTailStart));
     }
 
-    // 4. Atualização dos Ponteiros
-    for (var pEntry in pointers.entries) {
-      int pointerAddress = pEntry.key;
-      int oldStringAddress = pEntry.value;
+    pointers.forEach((pointerAddress, oldAbsoluteStringAddress) {
+      int newAbsoluteStringAddress = oldAbsoluteStringAddress;
 
-      // Se o ponteiro aponta para a string que estamos editando
-      if (oldStringAddress == offsetOfStringToEdit) {
-        // Mantém apontando para o mesmo local (o conteúdo foi substituído)
-        ByteData.sublistView(newData, pointerAddress).setUint32(0, oldStringAddress, Endian.little);
+      if (oldAbsoluteStringAddress > offsetOfStringToEdit) {
+        newAbsoluteStringAddress += shiftAmount;
       }
-      // Se o ponteiro aponta para depois da string editada
-      else if (oldStringAddress > offsetOfStringToEdit) {
-        // Ajusta o valor do ponteiro pelo shiftAmount
-        int newPointerValue = oldStringAddress + shiftAmount;
-        ByteData.sublistView(newData, pointerAddress).setUint32(0, newPointerValue, Endian.little);
-      } else {
-        // Ponteiros para strings antes da editada permanecem inalterados
-        ByteData.sublistView(newData, pointerAddress).setUint32(0, oldStringAddress, Endian.little);
-      }
-    }
 
-    // 5. Atualiza as estruturas internas
+      int newRelativeOffset = newAbsoluteStringAddress - STRING_TABLE_START;
+
+      if (pointerAddress < newData.length - 3) {
+        ByteData.sublistView(newData, pointerAddress)
+            .setUint32(0, newRelativeOffset, Endian.little);
+      }
+    });
+
     data = newData;
 
-    // 6. Reconstroi os mapas de strings e ponteiros
-    strings.clear();
-    pointers.clear();
-
-    // Extrai as strings novamente
-    final Set<int> foundStringOffsets = {};
-    for (int i = STRING_TABLE_START; i < data.length; i++) {
-      if (foundStringOffsets.contains(i) || data[i] == 0) continue;
-
-      final start = i;
-      int end = i;
-      while (end < data.length && data[end] != 0) {
-        end++;
-      }
-
-      if (end > start) {
-        final strBytes = data.sublist(start, end);
-        strings[start] = _decodeBytesToString(strBytes);
-        for (int j = start; j <= end; j++) {
-          foundStringOffsets.add(j);
-        }
-        i = end;
-      }
-    }
-
-    // Reconstroi os ponteiros
-    for (int i = 0; i <= data.length - 4; i++) {
-      int value = ByteData.sublistView(data, i).getUint32(0, Endian.little);
-      if (strings.containsKey(value)) {
-        pointers[i] = value;
-      }
-    }
+    extractData();
   }
 
   String exportHex() => hex.encode(data);
 }
 
-
 // =======================================================================
-// CÓDIGO DA INTERFACE GRÁFICA (UI)
+// CÓDIGO DA INTERFACE GRÁFICA (UI) - COM LAYOUT DA LISTA CORRIGIDO
 // =======================================================================
 void main() {
   runApp(HexEditorApp());
@@ -307,7 +248,7 @@ class _HexEditorScreenState extends State<HexEditorScreen> {
   late HexEditor editor;
   String searchQuery = "";
   final TextEditingController searchController = TextEditingController();
-  int? selectedOffset;
+  int? selectedStringAddress;
   final TextEditingController textController = TextEditingController();
 
   @override
@@ -317,9 +258,13 @@ class _HexEditorScreenState extends State<HexEditorScreen> {
   }
 
   void _onSave() {
-    if (selectedOffset != null) {
+    if (selectedStringAddress != null) {
       setState(() {
-        editor.editString(selectedOffset!, textController.text);
+        editor.editString(selectedStringAddress!, textController.text);
+        selectedStringAddress = null;
+        textController.clear();
+        searchController.clear();
+        searchQuery = "";
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Arquivo modificado e ponteiros realocados!"), duration: Duration(seconds: 2)),
@@ -336,10 +281,11 @@ class _HexEditorScreenState extends State<HexEditorScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final filteredEntries = editor.strings.entries
-        .where((entry) =>
-        entry.value.toLowerCase().contains(searchQuery.toLowerCase()))
-        .toList();
+    final filteredEntries = editor.pointers.entries.where((pointerEntry) {
+      final stringAddress = pointerEntry.value;
+      final stringValue = editor.strings[stringAddress] ?? "";
+      return stringValue.toLowerCase().contains(searchQuery.toLowerCase());
+    }).toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -376,21 +322,29 @@ class _HexEditorScreenState extends State<HexEditorScreen> {
             child: ListView.builder(
               itemCount: filteredEntries.length,
               itemBuilder: (context, index) {
-                final entry = filteredEntries[index];
-                final int offset = entry.key;
-                final String value = entry.value;
-                bool isSelected = selectedOffset == offset;
+                final pointerEntry = filteredEntries[index];
+                final int pointerAddress = pointerEntry.key;
+                final int stringAddress = pointerEntry.value;
+                final String stringValue = editor.strings[stringAddress] ?? "[ERRO: String não encontrada]";
 
+                bool isSelected = selectedStringAddress == stringAddress;
+
+                // CORREÇÃO VISUAL FINAL: Usando title e subtitle para um layout robusto.
                 return ListTile(
+                  isThreeLine: true, // Garante espaço vertical para o subtítulo quebrar a linha.
                   tileColor: isSelected ? Colors.blue.withOpacity(0.3) : null,
                   title: Text(
-                    "0x${offset.toRadixString(16).toUpperCase()}: $value",
-                    style: TextStyle(fontFamily: 'monospace', fontSize: 14),
+                    "P: 0x${pointerAddress.toRadixString(16).toUpperCase().padLeft(4, '0')} -> S: 0x${stringAddress.toRadixString(16).toUpperCase()}",
+                    style: TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.grey[500]),
+                  ),
+                  subtitle: Text(
+                    stringValue,
+                    style: TextStyle(fontFamily: 'monospace', fontSize: 15, color: Colors.white),
                   ),
                   onTap: () {
                     setState(() {
-                      selectedOffset = offset;
-                      textController.text = value;
+                      selectedStringAddress = stringAddress;
+                      textController.text = stringValue;
                     });
                   },
                 );
@@ -399,14 +353,14 @@ class _HexEditorScreenState extends State<HexEditorScreen> {
           ),
           Expanded(
             flex: 3,
-            child: selectedOffset != null
+            child: selectedStringAddress != null
                 ? Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                      "Editando String (Offset Original: 0x${selectedOffset!.toRadixString(16).toUpperCase()})"),
+                      "Editando String no Endereço: 0x${selectedStringAddress!.toRadixString(16).toUpperCase()}"),
                   SizedBox(height: 8),
                   Expanded(
                     child: TextField(
