@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:convert/convert.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:recomtexteditor/tradutor.dart';
 
 // =======================================================================
 // CLASSE DE TRADUÇÃO
