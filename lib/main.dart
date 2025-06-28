@@ -1,11 +1,13 @@
 import 'dart:collection';
-import 'dart:convert';
 import 'dart:typed_data';
 import 'package:convert/convert.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:recomtexteditor/tradutor.dart';
 
+// =======================================================================
+// CLASSE DE TRADUÇÃO
+// =======================================================================
+// Programado por HeroRickyGAMES com a ajuda de Deus!
 // =======================================================================
 // CLASSE PRINCIPAL DO EDITOR HEXADECIMAL (LÓGICA FINAL E CORRETA)
 // =======================================================================
@@ -95,14 +97,12 @@ class HexEditor {
     return Uint8List.fromList(byteList);
   }
 
-  /// Extração de dados com a lógica de PONTEIROS RELATIVOS correta.
   void extractData() {
     strings.clear();
     pointers.clear();
 
     for (int i = POINTER_TABLE_START; i < POINTER_TABLE_END && i <= data.length - 4; i += 4) {
       int relativeOffset = data.buffer.asByteData().getUint32(i, Endian.little);
-      // O endereço real é a base + o offset relativo lido.
       int absoluteAddress = POINTER_BASE_ADDRESS + relativeOffset;
 
       if (absoluteAddress < data.length) {
@@ -119,7 +119,6 @@ class HexEditor {
     }
   }
 
-  /// EDIÇÃO FINAL: Reconstrói o arquivo com a lógica de PONTEIROS RELATIVOS correta.
   void editString(int offsetOfStringToEdit, String newText) {
     if (!strings.containsKey(offsetOfStringToEdit)) return;
 
@@ -156,7 +155,6 @@ class HexEditor {
         newAbsoluteStringAddress += shiftAmount;
       }
 
-      // Converte o endereço absoluto de volta para o offset relativo correto.
       int newRelativeOffset = newAbsoluteStringAddress - POINTER_BASE_ADDRESS;
 
       if (pointerAddress < newData.length - 3) {
@@ -168,6 +166,7 @@ class HexEditor {
     extractData();
   }
 
+  // NOVO MÉTODO: Traduz todas as strings do arquivo.
   String exportHex() => hex.encode(data);
 }
 
@@ -250,13 +249,11 @@ class _HexEditorScreenState extends State<HexEditorScreen> {
   final TextEditingController searchController = TextEditingController();
   int? selectedStringAddress;
   final TextEditingController textController = TextEditingController();
-
   @override
   void initState() {
     super.initState();
     editor = HexEditor(widget.hexString);
   }
-
   void _onSave() {
     if (selectedStringAddress != null) {
       setState(() {
@@ -286,7 +283,7 @@ class _HexEditorScreenState extends State<HexEditorScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text("Editor de Arquivo de Jogo"),
+        title: Text("Kingdom Hearts RECOM PC TextEditor"),
         actions: [
           TextButton.icon(
             onPressed: _onCopy,
