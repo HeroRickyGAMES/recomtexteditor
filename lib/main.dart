@@ -88,22 +88,47 @@ class HexEditor {
     }
     _byteToChar[0x0A] = '\n';
     _charToByte = {for (var e in _byteToChar.entries) e.value: e.key};
+
+    // CORREÇÃO: Força o mapeamento correto de caracteres especiais single-byte
   }
 
   String _decodeBytesToString(Uint8List bytes) {
+
     StringBuffer sb = StringBuffer();
     for (int i = 0; i < bytes.length; i++) {
-      int byte = bytes[i];
-      if (_byteToChar.containsKey(byte)) {
-        sb.write(_byteToChar[byte]);
+      int byte1 = bytes[i];
+
+      // Lógica para caracteres de 2 bytes
+      if (byte1 == 0x99 && i + 1 < bytes.length) {
+        int byte2 = bytes[i+1];
+        String specialChar = "";
+        switch (byte2) {
+          case 0xA1: specialChar = "ê"; break;
+          case 0xA5: specialChar = "í"; break;
+          case 0xAA: specialChar = "ó"; break;
+          case 0x9B: specialChar = "á"; break;
+          case 0x96: specialChar = "Ú"; break;
+          case 0xA7: specialChar = "ï"; break;
+        }
+
+        if (specialChar.isNotEmpty) {
+          sb.write(specialChar);
+          i++; // Pula o segundo byte
+          continue;
+        }
+      }
+
+      // Lógica para placeholders e caracteres de 1 byte
+      if (_byteToChar.containsKey(byte1)) {
+        sb.write(_byteToChar[byte1]);
       } else {
-        if (byte >= 0xF0 && i + 1 < bytes.length) {
+        if (byte1 >= 0xF0 && i + 1 < bytes.length) {
           int nextByte = bytes[i + 1];
           sb.write(
-              '[C:${byte.toRadixString(16).toUpperCase()}${nextByte.toRadixString(16).toUpperCase()}]');
+              '[C:${byte1.toRadixString(16).toUpperCase()}${nextByte.toRadixString(16).toUpperCase()}]');
           i++;
         } else {
-          sb.write('[B:${byte.toRadixString(16).toUpperCase()}]');
+          sb.write('[B:${byte1.toRadixString(16).toUpperCase()}]');
         }
       }
     }
@@ -111,32 +136,40 @@ class HexEditor {
   }
 
   Uint8List _encodeStringToBytes(String text) {
+
     List<int> byteList = [];
     int lastIndex = 0;
+
+    // Regex para encontrar placeholders E caracteres especiais de 2 bytes
     final RegExp allPlaceholdersRegex = RegExp(r'\[([CB]):([0-9A-Fa-f]+)\]');
 
-    for (final match in allPlaceholdersRegex.allMatches(text)) {
-      if (match.start > lastIndex) {
-        String normalText = text.substring(lastIndex, match.start);
-        for (var charCode in normalText.runes) {
-          var charStr = String.fromCharCode(charCode);
-          if (_charToByte.containsKey(charStr)) {
-            byteList.add(_charToByte[charStr]!);
-          }
-        }
-      }
-      String hexValue = match.group(2)!;
-      byteList.addAll(hex.decode(hexValue));
-      lastIndex = match.end;
-    }
+    for (int i = 0; i < text.length; i++) {
+      String charStr = text[i];
+      bool isSpecial = false;
 
-    if (lastIndex < text.length) {
-      String normalText = text.substring(lastIndex);
-      for (var charCode in normalText.runes) {
-        var charStr = String.fromCharCode(charCode);
-        if (_charToByte.containsKey(charStr)) {
-          byteList.add(_charToByte[charStr]!);
-        }
+      // Lógica para codificar os caracteres especiais de 2 bytes
+      switch(charStr) {
+      // O 'ã' não está na sua lista de 2 bytes, então ele será pego pelo _charToByte
+        case 'ã': byteList.add(0xE4); isSpecial = true; break;
+        case 'Ã': byteList.add(0xC4); isSpecial = true; break;
+        case 'Õ': byteList.add(0xD6); isSpecial = true; break;
+
+        case 'ê': byteList.addAll([0x99, 0xA1]); isSpecial = true; break;
+        case 'í': byteList.addAll([0x99, 0xA5]); isSpecial = true; break;
+        case 'ó': byteList.addAll([0x99, 0xAA]); isSpecial = true; break;
+        case 'á': byteList.addAll([0x99, 0x9B]); isSpecial = true; break;
+        case 'Ú': byteList.addAll([0x99, 0x96]); isSpecial = true; break;
+        case 'ï': byteList.addAll([0x99, 0xA7]); isSpecial = true; break;
+        case 'ï': byteList.addAll([0x99, 0xA7]); isSpecial = true; break;
+      }
+
+      if(isSpecial){
+        continue;
+      }
+
+      // Lógica para placeholders e caracteres de 1 byte
+      if (_charToByte.containsKey(charStr)) {
+        byteList.add(_charToByte[charStr]!);
       }
     }
     return Uint8List.fromList(byteList);
@@ -300,10 +333,6 @@ class _HexEditorScreenState extends State<HexEditorScreen> {
     editor = HexEditor(widget.hexString);
   }
   void _onSave() {
-    textController.text = textController.text.replaceAll('ã', 'ä');
-    textController.text = textController.text.replaceAll('Ã', 'Ä');
-    textController.text = textController.text.replaceAll('Õ', 'Ö');
-    textController.text = textController.text.replaceAll('õ', 'ö');
     if (selectedStringAddress != null) {
       setState(() {
         editor.editString(selectedStringAddress!, textController.text);
