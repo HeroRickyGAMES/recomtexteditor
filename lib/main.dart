@@ -4,9 +4,10 @@ import 'dart:typed_data';
 import 'package:convert/convert.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:recomtexteditor/tradutor.dart';
 
 // =======================================================================
-// CLASSE PRINCIPAL DO EDITOR HEXADECIMAL (LÓGICA CORRETA)
+// CLASSE PRINCIPAL DO EDITOR HEXADECIMAL (LÓGICA FINAL E CORRETA)
 // =======================================================================
 class HexEditor {
   Uint8List data;
@@ -16,7 +17,8 @@ class HexEditor {
   // REGRAS FIXAS baseadas na nossa análise
   static const int POINTER_TABLE_START = 0x194;
   static const int POINTER_TABLE_END = 0x0A74;
-  static const int STRING_TABLE_START = 0x0A74;
+  // A BASE para o cálculo dos ponteiros relativos é 0x0A70.
+  static const int POINTER_BASE_ADDRESS = 0x0A70;
 
   late final Map<int, String> _byteToChar;
   late final Map<String, int> _charToByte;
@@ -93,32 +95,31 @@ class HexEditor {
     return Uint8List.fromList(byteList);
   }
 
-  /// Extração de dados LIDERADA POR PONTEIROS.
+  /// Extração de dados com a lógica de PONTEIROS RELATIVOS correta.
   void extractData() {
     strings.clear();
     pointers.clear();
 
     for (int i = POINTER_TABLE_START; i < POINTER_TABLE_END && i <= data.length - 4; i += 4) {
-      int relativeOffset = ByteData.sublistView(data, i).getUint32(0, Endian.little);
-      int absoluteAddress = STRING_TABLE_START + relativeOffset;
-      pointers[i] = absoluteAddress;
+      int relativeOffset = data.buffer.asByteData().getUint32(i, Endian.little);
+      // O endereço real é a base + o offset relativo lido.
+      int absoluteAddress = POINTER_BASE_ADDRESS + relativeOffset;
 
-      if (!strings.containsKey(absoluteAddress) && absoluteAddress < data.length) {
-        int end = absoluteAddress;
-        while (end < data.length && data[end] != 0) {
-          end++;
-        }
-        if (end > absoluteAddress) {
+      if (absoluteAddress < data.length) {
+        pointers[i] = absoluteAddress;
+
+        if (!strings.containsKey(absoluteAddress)) {
+          int end = data.indexOf(0, absoluteAddress);
+          if (end == -1) { end = data.length; }
+
           final strBytes = data.sublist(absoluteAddress, end);
           strings[absoluteAddress] = _decodeBytesToString(strBytes);
-        } else {
-          strings[absoluteAddress] = "";
         }
       }
     }
   }
 
-  /// EDIÇÃO FINAL: Reconstrói o arquivo com a lógica de PONTEIROS RELATIVOS.
+  /// EDIÇÃO FINAL: Reconstrói o arquivo com a lógica de PONTEIROS RELATIVOS correta.
   void editString(int offsetOfStringToEdit, String newText) {
     if (!strings.containsKey(offsetOfStringToEdit)) return;
 
@@ -155,16 +156,15 @@ class HexEditor {
         newAbsoluteStringAddress += shiftAmount;
       }
 
-      int newRelativeOffset = newAbsoluteStringAddress - STRING_TABLE_START;
+      // Converte o endereço absoluto de volta para o offset relativo correto.
+      int newRelativeOffset = newAbsoluteStringAddress - POINTER_BASE_ADDRESS;
 
       if (pointerAddress < newData.length - 3) {
-        ByteData.sublistView(newData, pointerAddress)
-            .setUint32(0, newRelativeOffset, Endian.little);
+        newData.buffer.asByteData().setUint32(pointerAddress, newRelativeOffset, Endian.little);
       }
     });
 
     data = newData;
-
     extractData();
   }
 
@@ -172,7 +172,7 @@ class HexEditor {
 }
 
 // =======================================================================
-// CÓDIGO DA INTERFACE GRÁFICA (UI) - COM LAYOUT DA LISTA CORRIGIDO
+// CÓDIGO DA INTERFACE GRÁFICA (UI)
 // =======================================================================
 void main() {
   runApp(HexEditorApp());
@@ -262,9 +262,6 @@ class _HexEditorScreenState extends State<HexEditorScreen> {
       setState(() {
         editor.editString(selectedStringAddress!, textController.text);
         selectedStringAddress = null;
-        textController.clear();
-        searchController.clear();
-        searchQuery = "";
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Arquivo modificado e ponteiros realocados!"), duration: Duration(seconds: 2)),
@@ -319,8 +316,9 @@ class _HexEditorScreenState extends State<HexEditorScreen> {
         children: [
           Expanded(
             flex: 2,
-            child: ListView.builder(
+            child: ListView.separated(
               itemCount: filteredEntries.length,
+              separatorBuilder: (context, index) => Divider(height: 1, color: Colors.grey[800]),
               itemBuilder: (context, index) {
                 final pointerEntry = filteredEntries[index];
                 final int pointerAddress = pointerEntry.key;
@@ -329,10 +327,8 @@ class _HexEditorScreenState extends State<HexEditorScreen> {
 
                 bool isSelected = selectedStringAddress == stringAddress;
 
-                // CORREÇÃO VISUAL FINAL: Usando title e subtitle para um layout robusto.
                 return ListTile(
-                  isThreeLine: true, // Garante espaço vertical para o subtítulo quebrar a linha.
-                  tileColor: isSelected ? Colors.blue.withOpacity(0.3) : null,
+                  tileColor: isSelected ? Colors.blue.withOpacity(0.3) : Colors.transparent,
                   title: Text(
                     "P: 0x${pointerAddress.toRadixString(16).toUpperCase().padLeft(4, '0')} -> S: 0x${stringAddress.toRadixString(16).toUpperCase()}",
                     style: TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.grey[500]),
@@ -375,6 +371,10 @@ class _HexEditorScreenState extends State<HexEditorScreen> {
                   SizedBox(height: 10),
                   Row(
                     children: [
+                      IconButton(onPressed: () async {
+                        textController.text = await TradutorClass(textController.text);
+                      },
+                          icon: Icon(Icons.translate)),
                       ElevatedButton.icon(
                         icon: Icon(Icons.save),
                         onPressed: _onSave,
