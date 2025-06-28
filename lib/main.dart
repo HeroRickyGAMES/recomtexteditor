@@ -300,13 +300,14 @@ class _HexEditorScreenState extends State<HexEditorScreen> {
     editor = HexEditor(widget.hexString);
   }
   void _onSave() {
+    textController.text = textController.text.replaceAll('ã', 'ä');
+    textController.text = textController.text.replaceAll('Ã', 'Ä');
+    textController.text = textController.text.replaceAll('Õ', 'Ö');
+    textController.text = textController.text.replaceAll('õ', 'ö');
     if (selectedStringAddress != null) {
       setState(() {
         editor.editString(selectedStringAddress!, textController.text);
         selectedStringAddress = null;
-        textController.clear();
-        searchQuery = "";
-        searchController.clear();
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Arquivo modificado e ponteiros realocados!"), duration: Duration(seconds: 2)),
