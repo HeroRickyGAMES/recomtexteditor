@@ -150,16 +150,19 @@ class HexEditor {
       // Lógica para codificar os caracteres especiais de 2 bytes
       switch(charStr) {
       // O 'ã' não está na sua lista de 2 bytes, então ele será pego pelo _charToByte
-        case 'ã': byteList.add(0xE4); isSpecial = true; break;
+        case 'ç': byteList.add(0xE7); isSpecial = true; break;
         case 'Ã': byteList.add(0xC4); isSpecial = true; break;
         case 'Õ': byteList.add(0xD6); isSpecial = true; break;
+
+        //Especulações
+        case 'ã': byteList.addAll([0x99, 0x9E]); isSpecial = true; break;
+        case 'â': byteList.addAll([0x9E, 0x9E]); isSpecial = true; break;
 
         case 'ê': byteList.addAll([0x99, 0xA1]); isSpecial = true; break;
         case 'í': byteList.addAll([0x99, 0xA5]); isSpecial = true; break;
         case 'ó': byteList.addAll([0x99, 0xAA]); isSpecial = true; break;
         case 'á': byteList.addAll([0x99, 0x9B]); isSpecial = true; break;
-        case 'Ú': byteList.addAll([0x99, 0x96]); isSpecial = true; break;
-        case 'ï': byteList.addAll([0x99, 0xA7]); isSpecial = true; break;
+        case 'ú': byteList.addAll([0x99, 0x96]); isSpecial = true; break;
         case 'ï': byteList.addAll([0x99, 0xA7]); isSpecial = true; break;
       }
 
