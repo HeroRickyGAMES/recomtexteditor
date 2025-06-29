@@ -11,6 +11,10 @@ import 'package:translator_plus/translator_plus.dart';
 // Programado por HeroRickyGAMES com a ajuda de Deus!
 final translator = GoogleTranslator();
 
+late final Map<int, String> _byteToChar;
+late final Map<String, List<int>> _charToMultiByte;
+late final Map<int, String> _multiByteToChar;
+
 Future<String> TradutorClass(String Texto) async {
   try {
     if (Texto.trim().isEmpty) {
@@ -87,41 +91,50 @@ class HexEditor {
       _byteToChar[i + 128] = extendedChars[i];
     }
     _byteToChar[0x0A] = '\n';
+
+    // Mapa de caracteres de 1 byte para facilitar a busca no encode
     _charToByte = {for (var e in _byteToChar.entries) e.value: e.key};
 
-    // CORREÇÃO: Força o mapeamento correto de caracteres especiais single-byte
+    // Tabela customizada para caracteres de 2 bytes
+    _charToMultiByte = {
+      'ç': [0x99, 0x9F],
+      'ã': [0x99, 0x9D],
+      'â': [0x99, 0x9C],
+      'é': [0x99, 0xA1],
+      'ê': [0x99, 0xA2],
+      'í': [0x99, 0xA5],
+      'ó': [0x99, 0xAA],
+      'á': [0x99, 0x9B],
+      'ú': [0x99, 0x96],
+      'ï': [0x99, 0xA7],
+      'Ó': [0x99, 0x90],
+      'Ç': [0x99, 0x7F],
+      'Ã': [0x99, 0x7D],
+      'ä': [0x99, 0x9E],
+    };
+
+    _multiByteToChar = {};
+    _charToMultiByte.forEach((key, value) {
+      final int multiByteKey = (value[0] << 8) | value[1];
+      _multiByteToChar[multiByteKey] = key;
+    });
   }
 
   String _decodeBytesToString(Uint8List bytes) {
-
     StringBuffer sb = StringBuffer();
     for (int i = 0; i < bytes.length; i++) {
       int byte1 = bytes[i];
 
-      // Lógica para caracteres de 2 bytes
-      if (byte1 == 0x99 && i + 1 < bytes.length) {
-        int byte2 = bytes[i+1];
-        String specialChar = "";
-        switch (byte2) {
-          case 0xA1: specialChar = "ê"; break;
-          case 0xA5: specialChar = "í"; break;
-          case 0xAA: specialChar = "ó"; break;
-          case 0x9B: specialChar = "á"; break;
-          case 0x96: specialChar = "Ú"; break;
-          case 0xA7: specialChar = "ï"; break;
-          case 0x5F: specialChar = "ã"; break;
-          case 0x23: specialChar = "Ç"; break;
-          case 0x5C: specialChar = "ç"; break;
-        }
-
-        if (specialChar.isNotEmpty) {
-          sb.write(specialChar);
-          i++; // Pula o segundo byte
+      if (i + 1 < bytes.length) {
+        int byte2 = bytes[i + 1];
+        int multiByteKey = (byte1 << 8) | byte2;
+        if (_multiByteToChar.containsKey(multiByteKey)) {
+          sb.write(_multiByteToChar[multiByteKey]);
+          i++;
           continue;
         }
       }
 
-      // Lógica para placeholders e caracteres de 1 byte
       if (_byteToChar.containsKey(byte1)) {
         sb.write(_byteToChar[byte1]);
       } else {
@@ -166,7 +179,8 @@ class HexEditor {
         case 'ç': byteList.addAll([0x99, 0x9F]); isSpecial = true; break;
         case 'ã': byteList.addAll([0x99, 0x9D]); isSpecial = true; break;
         case 'â': byteList.addAll([0x99, 0x9C]); isSpecial = true; break;
-        case 'ê': byteList.addAll([0x99, 0xA1]); isSpecial = true; break;
+        case 'é': byteList.addAll([0x99, 0xA1]); isSpecial = true; break;
+        case 'ê': byteList.addAll([0x99, 0xA2]); isSpecial = true; break;
         case 'í': byteList.addAll([0x99, 0xA5]); isSpecial = true; break;
         case 'ó': byteList.addAll([0x99, 0xAA]); isSpecial = true; break;
         case 'á': byteList.addAll([0x99, 0x9B]); isSpecial = true; break;
