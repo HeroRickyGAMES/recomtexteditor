@@ -109,6 +109,9 @@ class HexEditor {
           case 0x9B: specialChar = "á"; break;
           case 0x96: specialChar = "Ú"; break;
           case 0xA7: specialChar = "ï"; break;
+          case 0x5F: specialChar = "ã"; break;
+          case 0x23: specialChar = "Ç"; break;
+          case 0x5C: specialChar = "ç"; break;
         }
 
         if (specialChar.isNotEmpty) {
@@ -143,27 +146,35 @@ class HexEditor {
     // Regex para encontrar placeholders E caracteres especiais de 2 bytes
     final RegExp allPlaceholdersRegex = RegExp(r'\[([CB]):([0-9A-Fa-f]+)\]');
 
+    for (final match in allPlaceholdersRegex.allMatches(text)) {
+      if (match.start > lastIndex) {
+        String normalText = text.substring(lastIndex, match.start);
+        for (var charCode in normalText.runes) {
+          var charStr = String.fromCharCode(charCode);
+          if (_charToByte.containsKey(charStr)) {
+            byteList.add(_charToByte[charStr]!);
+          }
+        }
+      }
+    }
     for (int i = 0; i < text.length; i++) {
       String charStr = text[i];
       bool isSpecial = false;
 
       // Lógica para codificar os caracteres especiais de 2 bytes
       switch(charStr) {
-      // O 'ã' não está na sua lista de 2 bytes, então ele será pego pelo _charToByte
-        case 'ç': byteList.add(0xE7); isSpecial = true; break;
-        case 'Ã': byteList.add(0xC4); isSpecial = true; break;
-        case 'Õ': byteList.add(0xD6); isSpecial = true; break;
-
-        //Especulações
-        case 'ã': byteList.addAll([0x99, 0x9E]); isSpecial = true; break;
-        case 'â': byteList.addAll([0x9E, 0x9E]); isSpecial = true; break;
-
+        case 'ç': byteList.addAll([0x99, 0x9F]); isSpecial = true; break;
+        case 'ã': byteList.addAll([0x99, 0x9D]); isSpecial = true; break;
+        case 'â': byteList.addAll([0x99, 0x9C]); isSpecial = true; break;
         case 'ê': byteList.addAll([0x99, 0xA1]); isSpecial = true; break;
         case 'í': byteList.addAll([0x99, 0xA5]); isSpecial = true; break;
         case 'ó': byteList.addAll([0x99, 0xAA]); isSpecial = true; break;
         case 'á': byteList.addAll([0x99, 0x9B]); isSpecial = true; break;
         case 'ú': byteList.addAll([0x99, 0x96]); isSpecial = true; break;
         case 'ï': byteList.addAll([0x99, 0xA7]); isSpecial = true; break;
+        case 'Ó': byteList.addAll([0x99, 0x90]); isSpecial = true; break;
+        case 'Ç': byteList.addAll([0x99, 0x7F]); isSpecial = true; break;
+        case 'Ã': byteList.addAll([0x99, 0x7D]); isSpecial = true; break;
       }
 
       if(isSpecial){
