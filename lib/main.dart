@@ -103,13 +103,16 @@ class HexEditor {
       'é': [0x99, 0xA1],
       'ê': [0x99, 0xA2],
       'í': [0x99, 0xA5],
+      //bugado
       'ó': [0x99, 0xAA],
       'á': [0x99, 0x9B],
       'ú': [0x99, 0x96],
       'ï': [0x99, 0xA7],
       'Ó': [0x99, 0x90],
-      'Ç': [0x99, 0x7F],
-      'Ã': [0x99, 0x7D],
+      //bugado
+      'Ç': [0x99, 0x80],
+      'Ã': [0x99, 0x7E],
+
       'ä': [0x99, 0x9E],
     };
 
@@ -187,8 +190,9 @@ class HexEditor {
         case 'ú': byteList.addAll([0x99, 0x96]); isSpecial = true; break;
         case 'ï': byteList.addAll([0x99, 0xA7]); isSpecial = true; break;
         case 'Ó': byteList.addAll([0x99, 0x90]); isSpecial = true; break;
-        case 'Ç': byteList.addAll([0x99, 0x7F]); isSpecial = true; break;
-        case 'Ã': byteList.addAll([0x99, 0x7D]); isSpecial = true; break;
+        //BUGAGADO
+        case 'Ç': byteList.addAll([0x99, 0x80]); isSpecial = true; break;
+        case 'Ã': byteList.addAll([0x99, 0x7E]); isSpecial = true; break;
       }
 
       if(isSpecial){
