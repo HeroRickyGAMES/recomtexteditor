@@ -36,9 +36,12 @@ class HexEditor {
   Map<int, String> strings = SplayTreeMap<int, String>();
   Map<int, int> pointers = SplayTreeMap<int, int>(); // {endereco_do_ponteiro: endereco_ABSOLUTO_da_string}
 
-  // Offsets fixos no header onde as informações importantes são encontradas.
-  static const int HEADER_POINTER_TABLE_START_OFFSET = 0x08;
-  static const int HEADER_POINTER_BASE_ADDRESS_OFFSET = 0x0C;
+  // Identificadores de tipo de arquivo (magic numbers)
+  static const List<int> MAGIC_CTD = [0x40, 0x43, 0x54, 0x44]; // @CTD
+  static const List<int> MAGIC_MVS = [0x4D, 0x56, 0x53, 0x00]; // MVS
+
+  // Variável para armazenar o tipo de arquivo detectado
+  String _fileType = "UNKNOWN";
 
   // Variáveis que serão preenchidas dinamicamente a partir do header.
   late int pointerTableStart;
@@ -47,33 +50,81 @@ class HexEditor {
 
   late final Map<int, String> _byteToChar;
   late final Map<String, int> _charToByte;
+  late final Map<int, String> _multiByteToChar;
+  late final Map<String, List<int>> _charToMultiByte;
+
 
   HexEditor(String hexString)
       : data = Uint8List.fromList(hex.decode(hexString)) {
     _buildCharMap();
+    _detectFileType(); // Detecta o tipo de arquivo antes de analisar o header
     _analyzeHeader(); // Analisa o header para encontrar os offsets dinamicamente.
     extractData();
+  }
+
+  // NOVO MÉTODO: Detecta o tipo de arquivo baseado nos magic numbers
+  void _detectFileType() {
+    if (data.length >= 4) {
+      if (data[0] == MAGIC_CTD[0] && data[1] == MAGIC_CTD[1] && data[2] == MAGIC_CTD[2] && data[3] == MAGIC_CTD[3]) {
+        _fileType = "CTD";
+      } else if (data[0] == MAGIC_MVS[0] && data[1] == MAGIC_MVS[1] && data[2] == MAGIC_MVS[2] && data[3] == MAGIC_MVS[3]) {
+        _fileType = "MVS";
+      } else {
+        _fileType = "UNKNOWN";
+      }
+    }
+    print("Tipo de arquivo detectado: $_fileType");
   }
 
   /// NOVO MÉTODO INTELIGENTE: Analisa o header do arquivo para encontrar os offsets.
   void _analyzeHeader() {
     try {
-      // Lê os endereços diretamente do header do arquivo.
-      pointerTableStart = data.buffer.asByteData().getUint32(HEADER_POINTER_TABLE_START_OFFSET, Endian.little) + 4;
-      pointerBaseAddress = data.buffer.asByteData().getUint32(HEADER_POINTER_BASE_ADDRESS_OFFSET, Endian.little);
+      print("--- Análise do Header para tipo: $_fileType ---");
 
-      // A lógica consistente mostra que o fim da tabela de ponteiros é 4 bytes após a base.
-      pointerTableEnd = pointerBaseAddress + 4;
+      if (_fileType == "MVS") {
+        // Lógica para arquivos MVS (baseada em UK_MVS011.binl e análise)
+        int numPointers = data.buffer.asByteData().getUint16(0x06, Endian.little); // Number of pointers/strings
+        pointerTableStart = 0x10; // Start of the pointer table
+        pointerTableEnd = pointerTableStart + (numPointers * 4); // Each pointer is 4 bytes
+        pointerBaseAddress = 0; // For MVS, pointers in the table are absolute offsets from the beginning of the file.
 
-      print("--- Análise do Header ---");
-      print("Tabela de Ponteiros Inicia em: 0x${pointerTableStart.toRadixString(16)}");
-      print("Tabela de Ponteiros Termina em: 0x${pointerTableEnd.toRadixString(16)}");
-      print("Base dos Ponteiros: 0x${pointerBaseAddress.toRadixString(16)}");
+        // Check if the calculated pointerTableEnd is within the file bounds
+        if (pointerTableEnd > data.length) {
+            print("AVISO: pointerTableEnd calculado para MVS excede o tamanho do arquivo. Ajustando.");
+            pointerTableEnd = data.length; // Cap to file length to prevent out-of-bounds access
+        }
+
+      } else if (_fileType == "CTD") {
+        // Lógica para arquivos CTD: Ponteiros relativos
+        pointerTableStart = data.buffer.asByteData().getUint32(0x08, Endian.little); // Início da tabela de ponteiros
+        pointerBaseAddress = data.buffer.asByteData().getUint32(0x0C, Endian.little); // Endereço base para ponteiros relativos (e fim da tabela de ponteiros)
+        pointerTableEnd = pointerBaseAddress; // A tabela de ponteiros termina no endereço base das strings
+
+        // Adiciona uma verificação para os limites do arquivo
+        if (pointerTableEnd > data.length || pointerTableStart >= pointerTableEnd) {
+          print("ERRO: Offsets CTD calculados inválidos (${pointerTableStart.toRadixString(16)}, ${pointerTableEnd.toRadixString(16)}, ${pointerBaseAddress.toRadixString(16)}). Usando valores de fallback.");
+          // Valores de fallback se os offsets calculados forem inválidos
+          pointerTableStart = 0x194;
+          pointerTableEnd = 0x0A74;
+          pointerBaseAddress = 0x0A70; // Fallback para ponteiros relativos
+        }
+
+      } else {
+        // Fallback para tipo UNKNOWN ou se os magic numbers não corresponderem
+        print("Tipo de arquivo UNKNOWN ou magic numbers não correspondem. Usando valores de fallback.");
+        pointerTableStart = 0x194; // Fallback value
+        pointerTableEnd = 0x0A74; // Fallback value
+        pointerBaseAddress = 0x0A70; // Fallback value
+      }
+
+      print("Tabela de Ponteiros Inicia em: 0x${pointerTableStart.toRadixString(16).toUpperCase()}");
+      print("Tabela de Ponteiros Termina em: 0x${pointerTableEnd.toRadixString(16).toUpperCase()}");
+      print("Base dos Ponteiros: 0x${pointerBaseAddress.toRadixString(16).toUpperCase()}");
       print("--------------------------");
 
     } catch (e) {
-      print("Erro ao analisar o header. Usando valores de fallback. Erro: $e");
-      // Fallback para o arquivo original em caso de erro.
+      print("Erro ao analisar o header para o tipo $_fileType. Usando valores de fallback. Erro: $e");
+      // Fallback genérico em caso de erro na leitura do header
       pointerTableStart = 0x194;
       pointerTableEnd = 0x0A74;
       pointerBaseAddress = 0x0A70;
@@ -152,53 +203,46 @@ class HexEditor {
   }
 
   Uint8List _encodeStringToBytes(String text) {
-
     List<int> byteList = [];
-    int lastIndex = 0;
-
-    // Regex para encontrar placeholders E caracteres especiais de 2 bytes
-    final RegExp allPlaceholdersRegex = RegExp(r'\[([CB]):([0-9A-Fa-f]+)\]');
-
-    for (final match in allPlaceholdersRegex.allMatches(text)) {
-      if (match.start > lastIndex) {
-        String normalText = text.substring(lastIndex, match.start);
-        for (var charCode in normalText.runes) {
-          var charStr = String.fromCharCode(charCode);
-          if (_charToByte.containsKey(charStr)) {
-            byteList.add(_charToByte[charStr]!);
-          }
-        }
-      }
-    }
     for (int i = 0; i < text.length; i++) {
-      String charStr = text[i];
-      bool isSpecial = false;
+      String char = text[i];
 
-      // Lógica para codificar os caracteres especiais de 2 bytes
-      switch(charStr) {
-        case 'ç': byteList.addAll([0x99, 0x9F]); isSpecial = true; break;
-        case 'ã': byteList.addAll([0x99, 0x9D]); isSpecial = true; break;
-        case 'â': byteList.addAll([0x99, 0x9C]); isSpecial = true; break;
-        case 'é': byteList.addAll([0x99, 0xA1]); isSpecial = true; break;
-        case 'ê': byteList.addAll([0x99, 0xA2]); isSpecial = true; break;
-        case 'í': byteList.addAll([0x99, 0xA5]); isSpecial = true; break;
-        case 'ó': byteList.addAll([0x99, 0xAA]); isSpecial = true; break;
-        case 'á': byteList.addAll([0x99, 0x9B]); isSpecial = true; break;
-        case 'ú': byteList.addAll([0x99, 0x96]); isSpecial = true; break;
-        case 'ï': byteList.addAll([0x99, 0xA7]); isSpecial = true; break;
-        case 'Ó': byteList.addAll([0x99, 0x90]); isSpecial = true; break;
-        case 'Ç': byteList.addAll([0x99, 0x85]); isSpecial = true; break;
-        case 'Ã': byteList.addAll([0x99, 0x83]); isSpecial = true; break;
+      // Check for placeholders first, as they are multi-character sequences
+      if (char == '[' && (text.substring(i).startsWith("[C:") || text.substring(i).startsWith("[B:"))) {
+          final endBracket = text.indexOf(']', i);
+          if (endBracket != -1) {
+              final placeholder = text.substring(i, endBracket + 1);
+              final type = placeholder[1];
+              final hexValue = placeholder.substring(3, placeholder.length - 1);
+
+              try {
+                  if (type == 'C' && hexValue.length == 4) {
+                      byteList.add(int.parse(hexValue.substring(0, 2), radix: 16));
+                      byteList.add(int.parse(hexValue.substring(2, 4), radix: 16));
+                      i = endBracket; // Move index past the placeholder
+                      continue;
+                  } else if (type == 'B' && hexValue.length == 2) {
+                      byteList.add(int.parse(hexValue, radix: 16));
+                      i = endBracket; // Move index past the placeholder
+                      continue;
+                  }
+              } catch (e) {
+                  // Not a valid placeholder, will be treated as normal characters below.
+              }
+          }
       }
 
-      if(isSpecial){
+      // Check for multi-byte characters
+      if (_charToMultiByte.containsKey(char)) {
+        byteList.addAll(_charToMultiByte[char]!);
         continue;
       }
 
-      // Lógica para placeholders e caracteres de 1 byte
-      if (_charToByte.containsKey(charStr)) {
-        byteList.add(_charToByte[charStr]!);
+      // Handle single-byte characters
+      if (_charToByte.containsKey(char)) {
+        byteList.add(_charToByte[char]!);
       }
+      // Unknown characters are ignored
     }
     return Uint8List.fromList(byteList);
   }
@@ -208,23 +252,23 @@ class HexEditor {
     pointers.clear();
 
     for (int i = pointerTableStart; i < pointerTableEnd && i <= data.length - 4; i += 4) {
-      int relativeOffset = data.buffer.asByteData().getUint32(i, Endian.little);
-      int absoluteAddress = pointerBaseAddress + relativeOffset;
+      int relativeOffsetInTable = data.buffer.asByteData().getUint32(i, Endian.little);
+      int absoluteStringAddress = pointerBaseAddress + relativeOffsetInTable;
 
-      if (absoluteAddress < data.length) {
-        pointers[i] = absoluteAddress;
+      if (absoluteStringAddress < data.length) {
+        pointers[i] = absoluteStringAddress;
 
-        if (!strings.containsKey(absoluteAddress)) {
-          int end = data.indexOf(0, absoluteAddress);
+        if (!strings.containsKey(absoluteStringAddress)) {
+          int end = data.indexOf(0, absoluteStringAddress);
           if (end == -1) { end = data.length; }
 
-          final strBytes = data.sublist(absoluteAddress, end);
-          strings[absoluteAddress] = _decodeBytesToString(strBytes);
+          final strBytes = data.sublist(absoluteStringAddress, end);
+          strings[absoluteStringAddress] = _decodeBytesToString(strBytes);
+          print("Extraído (0x${absoluteStringAddress.toRadixString(16).toUpperCase()}): ${strings[absoluteStringAddress]}"); // Debug print
         }
       }
     }
   }
-
   void editString(int offsetOfStringToEdit, String newText) {
     if (!strings.containsKey(offsetOfStringToEdit)) return;
 
@@ -238,6 +282,7 @@ class HexEditor {
     if (shiftAmount == 0) {
       data.setRange(
           offsetOfStringToEdit, offsetOfStringToEdit + newTextBytes.length, newTextBytes);
+      data[offsetOfStringToEdit + newTextBytes.length] = 0x00; // Null terminator
       strings[offsetOfStringToEdit] = newText;
       return;
     }
@@ -246,7 +291,7 @@ class HexEditor {
     newData.setRange(0, offsetOfStringToEdit, data.sublist(0, offsetOfStringToEdit));
     newData.setRange(
         offsetOfStringToEdit, offsetOfStringToEdit + newTextBytes.length, newTextBytes);
-    newData[offsetOfStringToEdit + newTextBytes.length] = 0x00;
+    newData[offsetOfStringToEdit + newTextBytes.length] = 0x00; // Null terminator
     int originalTailStart = offsetOfStringToEdit + oldLengthInFile;
     int newTailStart = offsetOfStringToEdit + newLengthInFile;
     if (originalTailStart < data.length) {
@@ -254,22 +299,38 @@ class HexEditor {
           newTailStart, newData.length, data.sublist(originalTailStart));
     }
 
+    // Adjust pointers
     pointers.forEach((pointerAddress, oldAbsoluteStringAddress) {
       int newAbsoluteStringAddress = oldAbsoluteStringAddress;
+      int newPointerValue = 0; // This will be the value written back to the pointer table
 
-      if (oldAbsoluteStringAddress > offsetOfStringToEdit) {
+      if (oldAbsoluteStringAddress > offsetOfStringToEdit) { // Use > for pointers to subsequent strings only
         newAbsoluteStringAddress += shiftAmount;
       }
-
-      int newRelativeOffset = newAbsoluteStringAddress - pointerBaseAddress;
-
-      if (pointerAddress < newData.length - 3) {
-        newData.buffer.asByteData().setUint32(pointerAddress, newRelativeOffset, Endian.little);
+      
+      // Calculate new pointer value based on the file type's pointerBaseAddress
+      if (_fileType == "MVS") {
+          newPointerValue = newAbsoluteStringAddress; // MVS pointers are absolute (pointerBaseAddress is 0)
+      } else if (_fileType == "CTD") {
+          newPointerValue = newAbsoluteStringAddress - pointerBaseAddress; // CTD pointers are relative to pointerBaseAddress
+      } else {
+          // Fallback, use the old relative calculation if file type is unknown.
+          newPointerValue = newAbsoluteStringAddress - pointerBaseAddress;
+      }
+      
+      if (pointerAddress < newData.length - 3) { // Ensure there's space for a Uint32
+          newData.buffer.asByteData().setUint32(pointerAddress, newPointerValue, Endian.little);
       }
     });
 
+
+
+
+
     data = newData;
-    _analyzeHeader();
+    // Re-analyze header and extract data as file size and offsets might have changed
+    // This will rebuild the strings and pointers maps based on the new data
+    _analyzeHeader(); 
     extractData();
   }
 
