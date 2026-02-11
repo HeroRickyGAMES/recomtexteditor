@@ -416,6 +416,10 @@ class _HexEditorScreenState extends State<HexEditorScreen> {
   final TextEditingController searchController = TextEditingController();
   int? selectedStringAddress;
   final TextEditingController textController = TextEditingController();
+  bool _isTranslating = false;
+  int _translateProgress = 0;
+  int _translateTotal = 0;
+  String _translateStatus = "";
   @override
   void initState() {
     super.initState();
@@ -440,6 +444,143 @@ class _HexEditorScreenState extends State<HexEditorScreen> {
     );
   }
 
+  Future<void> _translateAll() async {
+    bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text("Traduzir Tudo com Google Tradutor"),
+        content: Text(
+          "Isso irá traduzir todas as legendas do inglês para o português.\n"
+          "Legendas já em português serão puladas automaticamente.\n\n"
+          "Deseja continuar?",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text("Cancelar"),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text("Traduzir"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    List<int> pointerAddresses = editor.pointers.keys.toList();
+
+    setState(() {
+      _isTranslating = true;
+      _translateProgress = 0;
+      _translateTotal = pointerAddresses.length;
+      _translateStatus = "Iniciando tradução...";
+      selectedStringAddress = null;
+    });
+
+    int translated = 0;
+    int skipped = 0;
+    int errors = 0;
+
+    for (int i = 0; i < pointerAddresses.length; i++) {
+      if (!_isTranslating || !mounted) break;
+
+      int pointerAddr = pointerAddresses[i];
+      if (!editor.pointers.containsKey(pointerAddr)) {
+        skipped++;
+        setState(() { _translateProgress = i + 1; });
+        continue;
+      }
+
+      int stringAddr = editor.pointers[pointerAddr]!;
+      String originalText = editor.strings[stringAddr] ?? "";
+
+      // Pular strings vazias ou com apenas códigos de controle
+      String textForCheck = originalText
+          .replaceAll(RegExp(r'\[(?:B:[0-9A-Fa-f]{2}|C:[0-9A-Fa-f]{4})\]'), '')
+          .trim();
+      if (textForCheck.isEmpty || textForCheck.length < 2) {
+        skipped++;
+        setState(() { _translateProgress = i + 1; });
+        continue;
+      }
+
+      try {
+        setState(() {
+          _translateStatus = "Traduzindo ${i + 1}/$_translateTotal...";
+          _translateProgress = i;
+        });
+
+        final translation = await translator.translate(
+          originalText,
+          from: 'auto',
+          to: 'pt',
+        );
+
+        // Verificar se já está em português
+        bool isPortuguese = false;
+        try {
+          String langCode = translation.sourceLanguage.code.toString().toLowerCase();
+          isPortuguese = langCode.startsWith('pt');
+        } catch (_) {
+          // Fallback: se o texto não mudou, provavelmente já está em PT
+          isPortuguese = translation.text == originalText;
+        }
+
+        if (isPortuguese) {
+          skipped++;
+          setState(() {
+            _translateProgress = i + 1;
+            _translateStatus = "Pulada (já em PT) ${i + 1}/$_translateTotal";
+          });
+          continue;
+        }
+
+        // Aplicar tradução e realocar ponteiros
+        setState(() {
+          editor.editString(stringAddr, translation.text);
+          _translateProgress = i + 1;
+        });
+
+        translated++;
+
+        // Delay para evitar rate limiting do Google
+        await Future.delayed(Duration(milliseconds: 200));
+      } catch (e) {
+        print("Erro ao traduzir string em 0x${stringAddr.toRadixString(16)}: $e");
+        errors++;
+        setState(() { _translateProgress = i + 1; });
+        await Future.delayed(Duration(milliseconds: 500));
+      }
+    }
+
+    setState(() {
+      _isTranslating = false;
+      _translateStatus = "";
+    });
+
+    if (mounted) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text("Tradução Completa!"),
+          content: Text(
+            "Traduzidas: $translated\n"
+            "Puladas: $skipped\n"
+            "Erros: $errors",
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text("OK"),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final filteredEntries = editor.pointers.entries.where((pointerEntry) {
@@ -452,6 +593,39 @@ class _HexEditorScreenState extends State<HexEditorScreen> {
       appBar: AppBar(
         title: Text("Kingdom Hearts RECOM PC TextEditor"),
         actions: [
+          if (_isTranslating)
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  ),
+                  SizedBox(width: 8),
+                  Text(
+                    _translateStatus,
+                    style: TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                  SizedBox(width: 8),
+                  TextButton(
+                    onPressed: () => setState(() => _isTranslating = false),
+                    child: Text("Cancelar", style: TextStyle(color: Colors.red[300])),
+                  ),
+                ],
+              ),
+            )
+          else
+            TextButton.icon(
+              onPressed: _translateAll,
+              icon: Icon(Icons.translate, color: Colors.white),
+              label: Text("Traduzir Tudo", style: TextStyle(color: Colors.white)),
+            ),
           TextButton.icon(
             onPressed: _onCopy,
             icon: Icon(Icons.copy, color: Colors.white),
