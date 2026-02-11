@@ -162,6 +162,12 @@ class HexEditor {
       'Ç': [0x99, 0x85],
       'Ã': [0x99, 0x83],
       'ä': [0x99, 0x9E],
+      
+      //CARACTERES DESCONHECIDOS!
+      'ô': [0xDA, 0xDA],
+      'Ô': [0xDA, 0xDA],
+      'õ': [0xDA, 0xDA],
+      'Õ': [0xDA, 0xDA],
     };
 
     _multiByteToChar = {};
