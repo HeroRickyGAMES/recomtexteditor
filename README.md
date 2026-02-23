@@ -1,4 +1,4 @@
-# recomtexteditor
+# kh1texteditor
 
 A new Flutter project.
 
