@@ -1027,6 +1027,9 @@ class _ExchangeTranslateScreenState extends State<ExchangeTranslateScreen> {
       _files = [];
     });
 
+    // Yield ao event loop para UI atualizar (mostra loading antes do I/O)
+    await Future.delayed(const Duration(milliseconds: 50));
+
     try {
       final outPath = _outPathCtrl.text.trim();
 
@@ -1041,7 +1044,12 @@ class _ExchangeTranslateScreenState extends State<ExchangeTranslateScreen> {
       }
 
       final List<ExchangeFile> allFiles = [];
-      for (final hedPath in hedPaths) {
+      for (int hi = 0; hi < hedPaths.length; hi++) {
+        final hedPath = hedPaths[hi];
+        setState(() {
+          _status = 'Escaneando pacote ${hi + 1}/${hedPaths.length}...\n${hedPath.split('/').last}';
+        });
+        await Future.delayed(const Duration(milliseconds: 16)); // yield UI
         final t = KH1BatchTranslator(hedOutPath: hedPath, outputBase: outPath);
         final found = t.scanFiles();
         for (final ef in found) {

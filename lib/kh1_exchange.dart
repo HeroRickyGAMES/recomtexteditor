@@ -271,13 +271,13 @@ class ExchangeFile {
 
     int pos = start;
     while (pos < data.length) {
-      _rawOffsets.add(pos);
       // Encontra fim de string (0x00 ou 0x02)
       int end = pos;
       while (end < data.length && data[end] != 0x00 && data[end] != 0x02) {
         end++;
       }
       if (end > pos) {
+        _rawOffsets.add(pos); // só registra offset quando há string real
         strings.add(KH1Encoding.decode(data.sublist(pos, end)));
       }
       pos = end + 1;
@@ -291,6 +291,21 @@ class ExchangeFile {
   void editString(int index, String newText) {
     if (index < 0 || index >= strings.length) return;
     strings[index] = newText;
+  }
+
+  // Retorna o espaço máximo disponível para a string i no arquivo original
+  int maxStringLen(int index) {
+    if (index < 0 || index >= _rawOffsets.length) return 0;
+    return _rawStringLen(_rawOffsets[index]);
+  }
+
+  // Comprimento original da string no raw data
+  int _rawStringLen(int offset) {
+    int len = 0;
+    while (offset + len < _rawData.length &&
+           _rawData[offset + len] != 0x00 &&
+           _rawData[offset + len] != 0x02) len++;
+    return len;
   }
 
   // -----------------------------------------------------------------------
@@ -369,23 +384,20 @@ class ExchangeFile {
   }
 
   void _saveSingle(String outDirPath, String spFileName) {
-    // Mantém header original (4 bytes de contagem se existia)
-    final List<int> newData = [];
-    if (_rawData.length > 4) {
-      final count = _rawData.buffer.asByteData().getUint32(0, Endian.little);
-      if (count < 300 && count > 0) {
-        newData.addAll(_rawData.sublist(0, 4)); // mantém header
-      }
+    // Patch in-place: preserva tamanho original do arquivo
+    // Evita crash por buffer overflow no game (PS2 engine com buffers fixos)
+    final bytes = Uint8List.fromList(_rawData);
+    for (int i = 0; i < strings.length && i < _rawOffsets.length; i++) {
+      final off = _rawOffsets[i];
+      final encoded = KH1Encoding.encode(strings[i]);
+      final origLen = _rawStringLen(off);
+      // Escreve bytes novos (limitado ao espaço original)
+      final writeLen = encoded.length < origLen ? encoded.length : origLen;
+      for (int j = 0; j < writeLen; j++) bytes[off + j] = encoded[j];
+      // Preenche resto com 0x00 (string menor que o slot original)
+      for (int j = writeLen; j < origLen; j++) bytes[off + j] = 0x00;
     }
-
-    for (final str in strings) {
-      final encoded = KH1Encoding.encode(str);
-      newData.addAll(encoded);
-      newData.add(0x02); // terminador alternativo
-    }
-
-    final out = File('$outDirPath/$spFileName');
-    out.writeAsBytesSync(Uint8List.fromList(newData));
+    File('$outDirPath/$spFileName').writeAsBytesSync(bytes);
   }
 
   // Helpers
@@ -474,6 +486,7 @@ class KH1BatchTranslator {
     result.addAll(_scanExchange());
     result.addAll(_scanRemasteredBtltbl());
     result.addAll(_scanRemasteredEv());
+    result.addAll(_scanRemasteredMenu());
     return result;
   }
 
@@ -520,6 +533,39 @@ class KH1BatchTranslator {
       }
     }
     return result;
+  }
+
+  // -----------------------------------------------------------------------
+  // Escaneia remastered/menu/uk/**/ (Load Menu, System Messages HD)
+  // -----------------------------------------------------------------------
+  List<ExchangeFile> _scanRemasteredMenu() {
+    final result = <ExchangeFile>[];
+    // remastered/menu/uk/ contém subpastas (ex: sysmsg.bin/) com UK_*.binl
+    final menuUkDir = Directory('$hedOutPath/remastered/menu/uk');
+    if (!menuUkDir.existsSync()) return result;
+    _scanDirRecursive(menuUkDir, result);
+    return result;
+  }
+
+  // Auxiliar: escaneia recursivamente diretório por UK_*.{binl,bin,ev,evdl}
+  void _scanDirRecursive(Directory dir, List<ExchangeFile> result) {
+    for (final entry in dir.listSync()) {
+      if (entry is File) {
+        final name = entry.path.split('/').last;
+        if (!name.startsWith('UK_')) continue;
+        final lower = name.toLowerCase();
+        if (!lower.endsWith('.binl') && !lower.endsWith('.bin') &&
+            !lower.endsWith('.ev') && !lower.endsWith('.evdl')) continue;
+        result.add(ExchangeFile(
+          ukDataPath: entry.path,
+          spDataPath: entry.path.replaceFirst('/UK_', '/SP_'),
+          hasPair: false,
+          inPlace: true,
+        ));
+      } else if (entry is Directory) {
+        _scanDirRecursive(entry, result);
+      }
+    }
   }
 
   // -----------------------------------------------------------------------
