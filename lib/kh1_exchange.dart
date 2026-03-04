@@ -73,14 +73,20 @@ class KH1Encoding {
     '…': 0x6D,
   };
 
-  // Termos que NÃO devem ser traduzidos
+  // Termos que NÃO devem ser traduzidos (nomes próprios do universo KH)
   static const List<String> _protectedTerms = [
     'Keyblade', 'Kingdom Hearts', 'Heartless', 'Nobody', 'Sora', 'Riku',
-    'Kairi', 'Donald', 'Goofy', 'Mickey', 'Ansem', 'Xehanort', 'Maleficent',
+    'Kairi', 'Donald', 'Mickey', 'Ansem', 'Xehanort',
     'Hollow Bastion', 'Traverse Town', 'Wonderland', 'Olympus', 'Agrabah',
     'Monstro', 'Atlantica', 'Neverland', 'End of the World', 'Destiny Islands',
     'Disney Castle', 'Deep Jungle',
   ];
+
+  // Nomes com tradução específica para PT-BR (substituídos ANTES de enviar ao Google)
+  static const Map<String, String> _characterTranslations = {
+    'Goofy': 'Pateta',
+    'Maleficent': 'Malévola',
+  };
 
   // -----------------------------------------------------------------------
   // DECODE: bytes KH1 → texto legível
@@ -167,6 +173,11 @@ class KH1Encoding {
   // Remove termos protegidos antes de traduzir, restaura depois
   static String protectTerms(String text, Map<String, String> placeholders) {
     String result = text;
+    // Aplica traduções específicas de personagens (Goofy→Pateta, etc.)
+    for (final entry in _characterTranslations.entries) {
+      result = result.replaceAll(entry.key, entry.value);
+    }
+    // Protege termos que NÃO devem ser traduzidos
     int idx = 0;
     for (final term in _protectedTerms) {
       if (result.contains(term)) {
@@ -198,9 +209,14 @@ class ExchangeFile {
   final bool hasPair;         // true = tem _data.bin + _offset/_ofs.bin
   final bool inPlace;         // true = arquivo binário misto (ev), patch no lugar
 
-  List<String> strings = []; // strings decodificadas do UK
-  List<int> _rawOffsets = [];  // offsets originais (para reconstrução)
+  List<String> strings = []; // strings decodificadas (apenas não-vazias) — para a UI
+  List<int> _rawOffsets = [];  // byte offsets das strings não-vazias
   Uint8List _rawData = Uint8List(0);
+
+  // Para _saveSingle(): rastreia TODAS as posições incluindo vagas vazias
+  // Necessário para preservar índice sequencial (raw index) que o game usa para buscar strings
+  List<int> _rawAllPositions = [];   // offset de cada segmento (vazio ou não)
+  List<bool> _rawAllIsEmpty = [];    // true = segmento vazio (só \0)
 
   ExchangeFile({
     required this.ukDataPath,
@@ -216,6 +232,8 @@ class ExchangeFile {
   void load() {
     strings.clear();
     _rawOffsets.clear();
+    _rawAllPositions.clear();
+    _rawAllIsEmpty.clear();
     final data = File(ukDataPath).readAsBytesSync();
     _rawData = data;
 
@@ -276,10 +294,20 @@ class ExchangeFile {
       while (end < data.length && data[end] != 0x00 && data[end] != 0x02) {
         end++;
       }
+
+      // Rastreia TODAS as posições (incluindo vagas vazias) para preservar raw index
+      _rawAllPositions.add(pos);
+
       if (end > pos) {
-        _rawOffsets.add(pos); // só registra offset quando há string real
+        // Segmento não-vazio
+        _rawAllIsEmpty.add(false);
+        _rawOffsets.add(pos);
         strings.add(KH1Encoding.decode(data.sublist(pos, end)));
+      } else {
+        // Vaga vazia — preserva na estrutura para reconstrução correta
+        _rawAllIsEmpty.add(true);
       }
+
       pos = end + 1;
       if (pos >= data.length) break;
     }
@@ -384,20 +412,46 @@ class ExchangeFile {
   }
 
   void _saveSingle(String outDirPath, String spFileName) {
-    // Patch in-place: preserva tamanho original do arquivo
-    // Evita crash por buffer overflow no game (PS2 engine com buffers fixos)
-    final bytes = Uint8List.fromList(_rawData);
-    for (int i = 0; i < strings.length && i < _rawOffsets.length; i++) {
-      final off = _rawOffsets[i];
-      final encoded = KH1Encoding.encode(strings[i]);
-      final origLen = _rawStringLen(off);
-      // Escreve bytes novos (limitado ao espaço original)
-      final writeLen = encoded.length < origLen ? encoded.length : origLen;
-      for (int j = 0; j < writeLen; j++) bytes[off + j] = encoded[j];
-      // Preenche resto com 0x00 (string menor que o slot original)
-      for (int j = writeLen; j < origLen; j++) bytes[off + j] = 0x00;
+    // Reconstrói preservando vagas vazias (empty slots) do arquivo original.
+    // CRÍTICO: o game busca strings por índice sequencial (raw index contando \0s),
+    // não por byte offset. Perder as vagas vazias desloca todos os índices e faz o
+    // game carregar strings erradas. Strings podem crescer/diminuir livremente.
+    final List<int> newData = [];
+
+    // Preserva header de contagem se existia (primeiros 4 bytes)
+    if (_rawData.length > 4) {
+      final count = _rawData.buffer.asByteData().getUint32(0, Endian.little);
+      if (count < 300 && count > 0) {
+        newData.addAll(_rawData.sublist(0, 4));
+      }
     }
-    File('$outDirPath/$spFileName').writeAsBytesSync(bytes);
+
+    // Detecta terminador original (0x00 ou 0x02) para preservar formato
+    int terminator = 0x00;
+    if (_rawOffsets.isNotEmpty) {
+      int pos = _rawOffsets[0];
+      while (pos < _rawData.length &&
+             _rawData[pos] != 0x00 &&
+             _rawData[pos] != 0x02) pos++;
+      if (pos < _rawData.length) terminator = _rawData[pos];
+    }
+
+    // Escreve todas as posições: vagas vazias (só terminador) e strings traduzidas
+    int stringIdx = 0;
+    for (int i = 0; i < _rawAllPositions.length; i++) {
+      if (_rawAllIsEmpty[i]) {
+        // Vaga vazia: preserva como terminador único (raw index mantido)
+        newData.add(terminator);
+      } else {
+        // String real: escreve tradução + terminador (pode ser maior ou menor)
+        final encoded = KH1Encoding.encode(strings[stringIdx]);
+        newData.addAll(encoded);
+        newData.add(terminator);
+        stringIdx++;
+      }
+    }
+
+    File('$outDirPath/$spFileName').writeAsBytesSync(Uint8List.fromList(newData));
   }
 
   // Helpers
@@ -502,6 +556,10 @@ class KH1BatchTranslator {
       if (!name.startsWith('UK_') || !name.endsWith('.bin')) continue;
       final rawBytes = f.readAsBytesSync();
       if (!_isTextFile(rawBytes, name)) continue;
+      // inPlace: false → _saveSingle() com preservação de vagas vazias (empty slots)
+      // O game busca strings por índice sequencial (raw index), não byte offset.
+      // Comprovado: UK/SP/FR/IT/GR todas têm "Kingdom Key" em raw[110] mas com
+      // byte offsets diferentes. Empty slots devem ser preservados no rebuild.
       result.add(ExchangeFile(
         ukDataPath: f.path,
         spDataPath: f.path.replaceFirst('/UK_', '/SP_'),

@@ -886,7 +886,17 @@ class _ExchangeTranslateScreenState extends State<ExchangeTranslateScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
 
   @override
+  void initState() {
+    super.initState();
+    // Listener para atualizar contador de chars quando usuário digita
+    _editCtrl.addListener(_onEditTextChanged);
+  }
+
+  void _onEditTextChanged() => setState(() {});
+
+  @override
   void dispose() {
+    _editCtrl.removeListener(_onEditTextChanged);
     _searchCtrl.dispose();
     _editCtrl.dispose();
     _hedPathCtrl.dispose();
@@ -1444,6 +1454,22 @@ class _ExchangeTranslateScreenState extends State<ExchangeTranslateScreen> {
                             style: const TextStyle(
                                 color: Colors.grey, fontSize: 12),
                           ),
+                          if (_selectedFile!.inPlace) ...[
+                            const SizedBox(height: 4),
+                            Builder(builder: (ctx) {
+                              final maxLen = _selectedFile!.maxStringLen(_selectedStringIdx!);
+                              final curLen = _editCtrl.text.length;
+                              final over = curLen > maxLen;
+                              return Text(
+                                'Limite in-place: $curLen / $maxLen chars${over ? " ⚠ MUITO LONGO — será truncado!" : ""}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: over ? Colors.orange : Colors.green[400],
+                                  fontWeight: over ? FontWeight.bold : FontWeight.normal,
+                                ),
+                              );
+                            }),
+                          ],
                           const SizedBox(height: 8),
                           Expanded(
                             child: TextField(
@@ -1451,8 +1477,17 @@ class _ExchangeTranslateScreenState extends State<ExchangeTranslateScreen> {
                               maxLines: null,
                               minLines: null,
                               expands: true,
-                              decoration: const InputDecoration(
-                                  border: OutlineInputBorder()),
+                              decoration: InputDecoration(
+                                border: const OutlineInputBorder(),
+                                // Borda laranja quando passa do limite in-place
+                                enabledBorder: (_selectedFile!.inPlace &&
+                                        _editCtrl.text.length >
+                                            _selectedFile!.maxStringLen(_selectedStringIdx!))
+                                    ? const OutlineInputBorder(
+                                        borderSide: BorderSide(
+                                            color: Colors.orange, width: 2))
+                                    : const OutlineInputBorder(),
+                              ),
                               style: const TextStyle(
                                   fontFamily: 'monospace', fontSize: 15),
                             ),
