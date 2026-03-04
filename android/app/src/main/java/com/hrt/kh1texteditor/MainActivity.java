@@ -1,4 +1,4 @@
-package com.hrt.recomtexteditor;
+package com.hrt.kh1texteditor;
 
 import io.flutter.embedding.android.FlutterActivity;
 

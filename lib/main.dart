@@ -1,9 +1,12 @@
 import 'dart:collection';
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:convert/convert.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:translator_plus/translator_plus.dart';
+import 'kh1_exchange.dart';
 
 // =======================================================================
 // CLASSE DE TRADUÇÃO
@@ -356,7 +359,111 @@ class HexEditorApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark(),
-      home: HexInputScreen(),
+      home: MainMenuScreen(),
+    );
+  }
+}
+
+// =======================================================================
+// TELA PRINCIPAL — escolha entre modos
+// =======================================================================
+class MainMenuScreen extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('KH HD Text Editor'),
+        centerTitle: true,
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text(
+              'Kingdom Hearts HD Text Editor',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Programado por HeroRickyGAMES com a ajuda de Deus!',
+              style: TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(height: 48),
+            _MenuButton(
+              icon: Icons.code,
+              label: 'Modo Manual (CTD / MVS)',
+              subtitle: 'Cole hexadecimal e edite strings',
+              color: Colors.blue,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => HexInputScreen()),
+              ),
+            ),
+            const SizedBox(height: 20),
+            _MenuButton(
+              icon: Icons.translate,
+              label: 'Traduzir Pasta KH1',
+              subtitle: 'Abre pasta hed_out e traduz UK→PT-BR (exchange files)',
+              color: Colors.green,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => ExchangeTranslateScreen()),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MenuButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String subtitle;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _MenuButton({
+    required this.icon,
+    required this.label,
+    required this.subtitle,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 420,
+      child: ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color.withOpacity(0.15),
+          side: BorderSide(color: color, width: 1.5),
+          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
+          alignment: Alignment.centerLeft,
+        ),
+        onPressed: onTap,
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 32),
+            const SizedBox(width: 16),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    style: TextStyle(
+                        color: color,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold)),
+                Text(subtitle,
+                    style:
+                        const TextStyle(color: Colors.grey, fontSize: 12)),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -732,6 +839,642 @@ class _HexEditorScreenState extends State<HexEditorScreen> {
               ),
             )
                 : Center(child: Text("Selecione uma string para editar")),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// =======================================================================
+// TELA DE TRADUÇÃO — PASTA KH1 EXCHANGE
+// =======================================================================
+class _SearchHit {
+  final ExchangeFile file;
+  final int idx;
+  final String text;
+  _SearchHit({required this.file, required this.idx, required this.text});
+}
+
+class ExchangeTranslateScreen extends StatefulWidget {
+  @override
+  _ExchangeTranslateScreenState createState() =>
+      _ExchangeTranslateScreenState();
+}
+
+class _ExchangeTranslateScreenState extends State<ExchangeTranslateScreen> {
+  final TextEditingController _hedPathCtrl = TextEditingController();
+  final TextEditingController _outPathCtrl = TextEditingController(
+    text: '/run/media/heroricky/JOGOS/khtraduzido',
+  );
+
+  List<ExchangeFile> _files = [];
+  ExchangeFile? _selectedFile;
+  int? _selectedStringIdx;
+  final TextEditingController _editCtrl = TextEditingController();
+
+  bool _isTranslating = false;
+  bool _isLoading = false;
+  int _progress = 0;
+  int _total = 0;
+  String _status = '';
+  String _lastResult = '';
+
+  KH1BatchTranslator? _translator;
+
+  String _searchQuery = '';
+  final TextEditingController _searchCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    _editCtrl.dispose();
+    _hedPathCtrl.dispose();
+    _outPathCtrl.dispose();
+    super.dispose();
+  }
+
+  // -----------------------------------------------------------------------
+  // Pesquisa global em todos os arquivos carregados
+  // -----------------------------------------------------------------------
+  static final _ctrlRegex = RegExp(r'\[(?:C|BTN|\?):[0-9A-Fa-f]{2,4}\]');
+
+  // Limpa códigos de controle para comparação de texto puro
+  static String _cleanForSearch(String raw) {
+    return raw
+        .replaceAll(_ctrlRegex, ' ') // [C:0C] → espaço (não remove, substitui!)
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
+  List<_SearchHit> get _searchResults {
+    if (_searchQuery.trim().isEmpty) return [];
+    final q = _searchQuery.toLowerCase();
+    final out = <_SearchHit>[];
+    for (final ef in _files) {
+      for (int i = 0; i < ef.strings.length; i++) {
+        final raw = ef.strings[i];
+        final clean = _cleanForSearch(raw);
+        if (clean.toLowerCase().contains(q)) {
+          out.add(_SearchHit(file: ef, idx: i, text: raw));
+        }
+      }
+    }
+    return out;
+  }
+
+  Widget _buildSearchResults() {
+    final results = _searchResults;
+    if (results.isEmpty) {
+      return Center(
+        child: Text(
+          'Nenhuma string contém "$_searchQuery".',
+          style: const TextStyle(color: Colors.grey),
+        ),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Text(
+            '${results.length} resultado(s) para "$_searchQuery"',
+            style: const TextStyle(color: Colors.grey, fontSize: 12),
+          ),
+        ),
+        Expanded(
+          child: ListView.separated(
+            itemCount: results.length,
+            separatorBuilder: (_, __) => Divider(height: 1, color: Colors.grey[800]),
+            itemBuilder: (_, i) {
+              final hit = results[i];
+              final fileName =
+                  hit.file.ukDataPath.split('/').last.replaceFirst('UK_', '');
+              final isSelected =
+                  _selectedFile == hit.file && _selectedStringIdx == hit.idx;
+              return ListTile(
+                dense: true,
+                selected: isSelected,
+                selectedTileColor: Colors.blue.withOpacity(0.2),
+                title: Row(
+                  children: [
+                    Text(
+                      fileName,
+                      style: const TextStyle(
+                          fontSize: 10,
+                          color: Colors.blueAccent,
+                          fontFamily: 'monospace'),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '[${hit.idx.toString().padLeft(3, '0')}]',
+                      style: const TextStyle(
+                          fontSize: 10,
+                          color: Colors.grey,
+                          fontFamily: 'monospace'),
+                    ),
+                  ],
+                ),
+                subtitle: Text(
+                  hit.text.isEmpty
+                      ? '(vazio)'
+                      : _cleanForSearch(hit.text),
+                  style: const TextStyle(fontSize: 13),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                onTap: () => setState(() {
+                  _selectedFile = hit.file;
+                  _selectedStringIdx = hit.idx;
+                  _editCtrl.text = hit.text;
+                }),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  // -----------------------------------------------------------------------
+  // Seleciona pasta hed_out
+  // -----------------------------------------------------------------------
+  Future<void> _pickFolder() async {
+    final result = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: 'Selecione a pasta kh1_NOME.hed_out',
+    );
+    if (result != null) {
+      setState(() {
+        _hedPathCtrl.text = result;
+        _files = [];
+        _selectedFile = null;
+      });
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Escaneia e carrega arquivos exchange
+  // Aceita tanto uma pasta raiz (kh1_mods) quanto uma hed_out específica
+  // -----------------------------------------------------------------------
+  Future<void> _scanFiles() async {
+    final inputPath = _hedPathCtrl.text.trim();
+    if (inputPath.isEmpty) return;
+
+    setState(() {
+      _isLoading = true;
+      _status = 'Escaneando...';
+      _files = [];
+    });
+
+    try {
+      final outPath = _outPathCtrl.text.trim();
+
+      // Decide se é pasta raiz ou uma hed_out direta
+      List<String> hedPaths;
+      final lastName = inputPath.split('/').last;
+      if (lastName.endsWith('.hed_out')) {
+        hedPaths = [inputPath];
+      } else {
+        hedPaths = KH1BatchTranslator.discoverHedOutFolders(inputPath);
+        if (hedPaths.isEmpty) hedPaths = [inputPath]; // fallback
+      }
+
+      final List<ExchangeFile> allFiles = [];
+      for (final hedPath in hedPaths) {
+        final t = KH1BatchTranslator(hedOutPath: hedPath, outputBase: outPath);
+        final found = t.scanFiles();
+        for (final ef in found) {
+          ef.load();
+        }
+        allFiles.addAll(found);
+      }
+
+      if (allFiles.isEmpty) {
+        setState(() {
+          _isLoading = false;
+          _status = 'Nenhum arquivo UK_ encontrado!\n'
+              'Selecione a pasta raiz "kh1_mods" ou uma pasta "kh1_xxx.hed_out".\n'
+              'Pasta usada: $inputPath';
+        });
+        return;
+      }
+
+      setState(() {
+        _files = allFiles;
+        _isLoading = false;
+        _status = '${allFiles.length} arquivos em ${hedPaths.length} pacote(s).';
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _status = 'Erro: $e';
+      });
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Traduz tudo automaticamente
+  // -----------------------------------------------------------------------
+  Future<void> _translateAll() async {
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Traduzir Tudo (UK → PT-BR)'),
+        content: const Text(
+          'Isso vai traduzir todos os arquivos exchange da pasta selecionada\n'
+          'do inglês para o português brasileiro.\n\n'
+          'Os arquivos serão salvos byte a byte em:\n'
+          'khtraduzido/kh1_NOME.hed_out/original/exchange/\n\n'
+          'Termos como "Keyblade" serão preservados.\nDeseja continuar?',
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar')),
+          ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Traduzir')),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    final hedPath = _hedPathCtrl.text.trim();
+    final outPath = _outPathCtrl.text.trim();
+    if (hedPath.isEmpty || outPath.isEmpty) return;
+
+    _translator = KH1BatchTranslator(
+      hedOutPath: hedPath,
+      outputBase: outPath,
+    );
+
+    setState(() {
+      _isTranslating = true;
+      _progress = 0;
+      _total = 0;
+      _status = 'Iniciando...';
+      _lastResult = '';
+    });
+
+    _translator!.onProgress = (cur, tot, status) {
+      if (mounted) {
+        setState(() {
+          _progress = cur;
+          _total = tot;
+          _status = status;
+        });
+      }
+    };
+
+    _translator!.onDone = (result) {
+      if (mounted) {
+        setState(() {
+          _isTranslating = false;
+          _lastResult = result;
+          _status = 'Concluído!';
+        });
+      }
+    };
+
+    await _translator!.translateAll(_files);
+  }
+
+  void _cancelTranslation() {
+    _translator?.cancelled = true;
+    setState(() {
+      _isTranslating = false;
+      _status = 'Cancelado pelo usuário.';
+    });
+  }
+
+  // -----------------------------------------------------------------------
+  // Salva arquivo manualmente (edição manual)
+  // -----------------------------------------------------------------------
+  void _saveManual() {
+    if (_selectedFile == null || _selectedStringIdx == null) return;
+    final newText = _editCtrl.text;
+    setState(() {
+      _selectedFile!.editString(_selectedStringIdx!, newText);
+    });
+
+    // Salva byte a byte (path completo é derivado do ukDataPath do arquivo)
+    try {
+      _selectedFile!.save(_outPathCtrl.text.trim());
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Salvo byte a byte com ponteiros atualizados!'),
+            duration: Duration(seconds: 2)),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao salvar: $e')),
+      );
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Traduz string individual
+  // -----------------------------------------------------------------------
+  Future<void> _translateSingle() async {
+    final t = GoogleTranslator();
+    final original = _editCtrl.text;
+    final Map<String, String> prot = {};
+    final toTrans = KH1Encoding.protectTerms(original, prot);
+    try {
+      final res = await t.translate(toTrans, from: 'en', to: 'pt');
+      final restored = KH1Encoding.restoreTerms(res.text, prot);
+      setState(() => _editCtrl.text = restored);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro na tradução: $e')),
+      );
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // UI
+  // -----------------------------------------------------------------------
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Traduzir KH1 Exchange — UK → PT-BR'),
+        actions: [
+          if (_isTranslating)
+            Row(children: [
+              const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white)),
+              const SizedBox(width: 8),
+              Text('$_progress/$_total — $_status',
+                  style:
+                      const TextStyle(color: Colors.white, fontSize: 12)),
+              const SizedBox(width: 8),
+              TextButton(
+                  onPressed: _cancelTranslation,
+                  child: Text('Cancelar',
+                      style: TextStyle(color: Colors.red[300]))),
+            ])
+          else ...[
+            if (_files.isNotEmpty)
+              TextButton.icon(
+                onPressed: _isLoading ? null : _translateAll,
+                icon: const Icon(Icons.translate, color: Colors.white),
+                label: const Text('Traduzir Tudo',
+                    style: TextStyle(color: Colors.white)),
+              ),
+          ],
+        ],
+      ),
+      body: Column(
+        children: [
+          // --- Configuração de pasta ---
+          Container(
+            color: Colors.grey[900],
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              children: [
+                Row(children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _hedPathCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Pasta raiz (ex: .../kh1_mods) ou hed_out específica',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton.icon(
+                      onPressed: _pickFolder,
+                      icon: const Icon(Icons.folder_open),
+                      label: const Text('Abrir')),
+                  const SizedBox(width: 8),
+                  ElevatedButton.icon(
+                      onPressed: _isLoading ? null : _scanFiles,
+                      icon: const Icon(Icons.search),
+                      label: const Text('Escanear')),
+                ]),
+                const SizedBox(height: 8),
+                Row(children: [
+                  const Text('Salvar em: ',
+                      style: TextStyle(color: Colors.grey)),
+                  Expanded(
+                    child: TextField(
+                      controller: _outPathCtrl,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                    ),
+                  ),
+                ]),
+                if (_status.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(_status,
+                      style:
+                          const TextStyle(color: Colors.greenAccent, fontSize: 12)),
+                ],
+                if (_isTranslating && _total > 0) ...[
+                  const SizedBox(height: 4),
+                  LinearProgressIndicator(
+                      value: _total > 0 ? _progress / _total : 0),
+                ],
+                if (_lastResult.isNotEmpty)
+                  Text(_lastResult,
+                      style:
+                          const TextStyle(color: Colors.yellowAccent, fontSize: 12)),
+              ],
+            ),
+          ),
+          // --- Barra de pesquisa global ---
+          Container(
+            color: Colors.grey[850],
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: TextField(
+              controller: _searchCtrl,
+              enabled: _files.isNotEmpty,
+              decoration: InputDecoration(
+                hintText: _files.isEmpty
+                    ? 'Carregue uma pasta para pesquisar...'
+                    : 'Pesquisar em todos os pacotes (ex: Sliding Dash)...',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        tooltip: 'Limpar pesquisa',
+                        onPressed: () => setState(() {
+                          _searchCtrl.clear();
+                          _searchQuery = '';
+                        }),
+                      )
+                    : null,
+                border: const OutlineInputBorder(),
+                isDense: true,
+              ),
+              onChanged: (v) => setState(() => _searchQuery = v),
+            ),
+          ),
+          // --- Lista de arquivos e editor ---
+          Expanded(
+            child: Row(
+              children: [
+                // Painel esquerdo: resultados de pesquisa OU lista de arquivos+strings
+                if (_searchQuery.trim().isNotEmpty) ...[
+                  Expanded(
+                    flex: 4,
+                    child: _buildSearchResults(),
+                  ),
+                ] else ...[
+                // Lista de arquivos (esquerda)
+                SizedBox(
+                  width: 240,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(8.0),
+                        child: Text(
+                          '${_files.length} arquivos',
+                          style: const TextStyle(
+                              color: Colors.grey, fontSize: 12),
+                        ),
+                      ),
+                      Expanded(
+                        child: ListView.builder(
+                          itemCount: _files.length,
+                          itemBuilder: (_, idx) {
+                            final ef = _files[idx];
+                            final name = ef.ukDataPath.split('/').last;
+                            final isSelected = ef == _selectedFile;
+                            return ListTile(
+                              dense: true,
+                              selected: isSelected,
+                              selectedTileColor:
+                                  Colors.blue.withOpacity(0.2),
+                              title: Text(
+                                name.replaceFirst('UK_', ''),
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              subtitle: Text(
+                                '${ef.strings.length} strings',
+                                style: const TextStyle(
+                                    fontSize: 10, color: Colors.grey),
+                              ),
+                              onTap: () => setState(() {
+                                _selectedFile = ef;
+                                _selectedStringIdx = null;
+                                _editCtrl.clear();
+                              }),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const VerticalDivider(width: 1),
+                // Lista de strings do arquivo (centro)
+                if (_selectedFile != null)
+                  Expanded(
+                    flex: 2,
+                    child: ListView.separated(
+                      itemCount: _selectedFile!.strings.length,
+                      separatorBuilder: (_, __) =>
+                          Divider(height: 1, color: Colors.grey[800]),
+                      itemBuilder: (_, i) {
+                        final str = _selectedFile!.strings[i];
+                        final isSelected = _selectedStringIdx == i;
+                        return ListTile(
+                          dense: true,
+                          selected: isSelected,
+                          selectedTileColor: Colors.blue.withOpacity(0.2),
+                          title: Text(
+                            '[${i.toString().padLeft(3, '0')}]',
+                            style: const TextStyle(
+                                fontSize: 10,
+                                color: Colors.grey,
+                                fontFamily: 'monospace'),
+                          ),
+                          subtitle: Text(
+                            str.isEmpty ? '(vazio)' : str,
+                            style: const TextStyle(fontSize: 13),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onTap: () => setState(() {
+                            _selectedStringIdx = i;
+                            _editCtrl.text = str;
+                          }),
+                        );
+                      },
+                    ),
+                  )
+                else
+                  const Expanded(
+                    flex: 2,
+                    child: Center(
+                        child: Text('Selecione um arquivo para editar')),
+                  ),
+                ], // fecha else (lista de arquivos + lista de strings)
+                const VerticalDivider(width: 1),
+                // Editor (direita) — sempre visível
+                if (_selectedStringIdx != null)
+                  Expanded(
+                    flex: 3,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'String [${_selectedStringIdx!.toString().padLeft(3, '0')}]  — ${_selectedFile!.ukDataPath.split('/').last}',
+                            style: const TextStyle(
+                                color: Colors.grey, fontSize: 12),
+                          ),
+                          const SizedBox(height: 8),
+                          Expanded(
+                            child: TextField(
+                              controller: _editCtrl,
+                              maxLines: null,
+                              minLines: null,
+                              expands: true,
+                              decoration: const InputDecoration(
+                                  border: OutlineInputBorder()),
+                              style: const TextStyle(
+                                  fontFamily: 'monospace', fontSize: 15),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Row(children: [
+                            IconButton(
+                              tooltip: 'Traduzir (Google)',
+                              onPressed: _translateSingle,
+                              icon: const Icon(Icons.translate),
+                            ),
+                            const SizedBox(width: 8),
+                            ElevatedButton.icon(
+                              icon: const Icon(Icons.save),
+                              label: const Text('Salvar byte a byte'),
+                              onPressed: _saveManual,
+                            ),
+                          ]),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  const Expanded(
+                    flex: 3,
+                    child: Center(
+                        child: Text('Selecione uma string para editar')),
+                  ),
+              ],
+            ),
           ),
         ],
       ),

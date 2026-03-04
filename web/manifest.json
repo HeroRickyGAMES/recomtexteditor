@@ -1,6 +1,6 @@
 {
-    "name": "recomtexteditor",
-    "short_name": "recomtexteditor",
+    "name": "kh1texteditor",
+    "short_name": "kh1texteditor",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

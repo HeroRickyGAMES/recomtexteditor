@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.hrt" "\0"
-            VALUE "FileDescription", "recomtexteditor" "\0"
+            VALUE "FileDescription", "kh1texteditor" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "recomtexteditor" "\0"
+            VALUE "InternalName", "kh1texteditor" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2025 com.hrt. All rights reserved." "\0"
-            VALUE "OriginalFilename", "recomtexteditor.exe" "\0"
-            VALUE "ProductName", "recomtexteditor" "\0"
+            VALUE "OriginalFilename", "kh1texteditor.exe" "\0"
+            VALUE "ProductName", "kh1texteditor" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END
