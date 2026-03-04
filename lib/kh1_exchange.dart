@@ -510,7 +510,7 @@ class KH1BatchTranslator {
       for (final f in entry.listSync().whereType<File>()) {
         final name = f.path.split('/').last;
         if (!name.startsWith('UK_')) continue;
-        if (!name.endsWith('.ev') && !name.endsWith('.evdl')) continue;
+        if (!name.endsWith('.ev') && !name.endsWith('.evdl') && !name.endsWith('.binl')) continue;
         result.add(ExchangeFile(
           ukDataPath: f.path,
           spDataPath: f.path.replaceFirst('/UK_', '/SP_'),
