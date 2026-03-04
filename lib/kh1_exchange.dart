@@ -196,6 +196,7 @@ class ExchangeFile {
   final String spDataPath;    // arquivo SP_ (lido como referência de estrutura)
   final String? offsetPath;   // arquivo de offsets (16-bit), se existir
   final bool hasPair;         // true = tem _data.bin + _offset/_ofs.bin
+  final bool inPlace;         // true = arquivo binário misto (ev), patch no lugar
 
   List<String> strings = []; // strings decodificadas do UK
   List<int> _rawOffsets = [];  // offsets originais (para reconstrução)
@@ -206,6 +207,7 @@ class ExchangeFile {
     required this.spDataPath,
     this.offsetPath,
     required this.hasPair,
+    this.inPlace = false,
   });
 
   // -----------------------------------------------------------------------
@@ -219,6 +221,8 @@ class ExchangeFile {
 
     if (hasPair && offsetPath != null) {
       _loadPaired(data);
+    } else if (inPlace) {
+      _loadInPlace(data);
     } else {
       _loadSingle(data);
     }
@@ -232,6 +236,28 @@ class ExchangeFile {
         _rawOffsets.add(off);
         strings.add(KH1Encoding.decode(data, startOffset: off));
       }
+    }
+  }
+
+  // Para arquivos binários mistos (.ev): só extrai strings com texto real
+  void _loadInPlace(Uint8List data) {
+    int pos = 0;
+    while (pos < data.length) {
+      int end = pos;
+      while (end < data.length && data[end] != 0x00 && data[end] != 0x02) {
+        end++;
+      }
+      if (end > pos) {
+        final str = KH1Encoding.decode(data.sublist(pos, end));
+        // Só inclui strings com conteúdo alfabético real (filtra lixo binário)
+        final alpha = str.replaceAll(RegExp(r'\[[^\]]+\]'), '');
+        if (alpha.trim().length >= 3 && alpha.contains(RegExp(r'[a-zA-Z]'))) {
+          _rawOffsets.add(pos);
+          strings.add(str);
+        }
+      }
+      pos = end + 1;
+      if (pos >= data.length) break;
     }
   }
 
@@ -271,13 +297,15 @@ class ExchangeFile {
   // Serializa e salva byte a byte no caminho SP de destino
   // -----------------------------------------------------------------------
   void save(String outputBase) {
-    final spFileName = _spFilename(ukDataPath);
-    final relPath = _relativePathFromExchange(spDataPath);
+    final spFileName = _outputFilename(ukDataPath);
+    final relPath = _relativePathFromExchange(ukDataPath);
     final outDir = Directory('$outputBase/$relPath');
     outDir.createSync(recursive: true);
 
     if (hasPair && offsetPath != null) {
       _savePaired(outDir.path, spFileName);
+    } else if (inPlace) {
+      _saveInPlace(outDir.path, spFileName);
     } else {
       _saveSingle(outDir.path, spFileName);
     }
@@ -300,7 +328,7 @@ class ExchangeFile {
     dataOut.writeAsBytesSync(Uint8List.fromList(newData));
 
     // Escreve _offset.bin ou _ofs.bin byte a byte (16-bit LE)
-    final spOffsetName = _spFilename(offsetPath!);
+    final spOffsetName = _outputFilename(offsetPath!);
     final List<int> offsetBytes = [];
     for (final off in newOffsets) {
       offsetBytes.add(off & 0xFF);
@@ -313,6 +341,31 @@ class ExchangeFile {
     }
     final offOut = File('$outDirPath/$spOffsetName');
     offOut.writeAsBytesSync(Uint8List.fromList(offsetBytes));
+  }
+
+  // Patch in-place: substitui strings no binário original sem alterar estrutura
+  void _saveInPlace(String outDirPath, String spFileName) {
+    final bytes = Uint8List.fromList(_rawData);
+    for (int i = 0; i < strings.length && i < _rawOffsets.length; i++) {
+      final off = _rawOffsets[i];
+      final encoded = KH1Encoding.encode(strings[i]);
+      // Calcula tamanho original da string no arquivo
+      int origLen = 0;
+      while (off + origLen < bytes.length &&
+             bytes[off + origLen] != 0x00 &&
+             bytes[off + origLen] != 0x02) {
+        origLen++;
+      }
+      // Escreve bytes novos (limitado ao tamanho original)
+      for (int j = 0; j < origLen && j < encoded.length; j++) {
+        bytes[off + j] = encoded[j];
+      }
+      // Preenche resto com 0x00 se string nova é menor
+      for (int j = encoded.length; j < origLen; j++) {
+        bytes[off + j] = 0x00;
+      }
+    }
+    File('$outDirPath/$spFileName').writeAsBytesSync(bytes);
   }
 
   void _saveSingle(String outDirPath, String spFileName) {
@@ -336,19 +389,19 @@ class ExchangeFile {
   }
 
   // Helpers
-  static String _spFilename(String ukPath) {
-    final name = ukPath.split('/').last;
-    if (name.startsWith('UK_')) return 'SP_${name.substring(3)}';
-    return name;
+  static String _outputFilename(String ukPath) {
+    return ukPath.split('/').last;
   }
 
   static String _relativePathFromExchange(String fullPath) {
-    // Retorna "kh1_first.hed_out/original/exchange" (ou .../menu/sp, etc.)
-    // incluindo o nome do hed_out até o diretório pai do arquivo
+    // Retorna "kh1_first/original/exchange" (SEM .hed_out no nome da pasta)
     final parts = fullPath.split('/');
     final hedIdx = parts.indexWhere((p) => p.endsWith('.hed_out'));
     if (hedIdx == -1) return 'exchange';
-    return parts.sublist(hedIdx, parts.length - 1).join('/');
+    // Remove o sufixo .hed_out do nome da pasta
+    final hedDirName = parts[hedIdx].replaceAll('.hed_out', '');
+    final subParts = [hedDirName, ...parts.sublist(hedIdx + 1, parts.length - 1)];
+    return subParts.join('/');
   }
 }
 
@@ -387,9 +440,92 @@ class KH1BatchTranslator {
   }
 
   // -----------------------------------------------------------------------
-  // Escaneia pasta exchange e monta lista de ExchangeFile
+  // Verifica se um arquivo é texto KH1 válido (exclui TTUI, EVM, kanji, etc.)
+  // -----------------------------------------------------------------------
+  static bool _isTextFile(Uint8List data, String filename) {
+    if (data.length < 4) return false;
+
+    // TTUI = UI layout (coordenadas, definições de elementos, NÃO texto)
+    if (data[0] == 0x54 && data[1] == 0x54 && data[2] == 0x55 && data[3] == 0x49) return false;
+
+    // EVM = cutscene/evento (sem texto KH1 acessível)
+    if (data[0] == 0x45 && data[1] == 0x56 && data[2] == 0x4D && data[3] == 0x00) return false;
+
+    // REDL = dados de eventos internos
+    if (data.length >= 4 && String.fromCharCodes(data.take(4)) == 'REDL') return false;
+
+    // Kanji table - arquivo muito grande de zeros/binário puro
+    if (filename.endsWith('.knj')) return false;
+
+    // Offset-only files (_offset.bin, _ofs.bin) - só ponteiros, sem texto real
+    if (filename.contains('_offset.bin') || filename.contains('_ofs.bin')) return false;
+
+    // Font tables
+    if (filename.contains('font') || filename.endsWith('sysfont.bin')) return false;
+
+    return true;
+  }
+
+  // -----------------------------------------------------------------------
+  // Escaneia todos os arquivos de texto (exchange + remastered)
   // -----------------------------------------------------------------------
   List<ExchangeFile> scanFiles() {
+    final result = <ExchangeFile>[];
+    result.addAll(_scanExchange());
+    result.addAll(_scanRemasteredBtltbl());
+    result.addAll(_scanRemasteredEv());
+    return result;
+  }
+
+  // -----------------------------------------------------------------------
+  // Escaneia remastered/btltbl.bin/ (habilidades, itens)
+  // -----------------------------------------------------------------------
+  List<ExchangeFile> _scanRemasteredBtltbl() {
+    final btltblDir = Directory('$hedOutPath/remastered/btltbl.bin');
+    if (!btltblDir.existsSync()) return [];
+    final result = <ExchangeFile>[];
+    for (final f in btltblDir.listSync().whereType<File>()) {
+      final name = f.path.split('/').last;
+      if (!name.startsWith('UK_') || !name.endsWith('.bin')) continue;
+      final rawBytes = f.readAsBytesSync();
+      if (!_isTextFile(rawBytes, name)) continue;
+      result.add(ExchangeFile(
+        ukDataPath: f.path,
+        spDataPath: f.path.replaceFirst('/UK_', '/SP_'),
+        hasPair: false,
+      ));
+    }
+    return result;
+  }
+
+  // -----------------------------------------------------------------------
+  // Escaneia remastered/*.ard/UK_*.ev (legendas de cutscene)
+  // -----------------------------------------------------------------------
+  List<ExchangeFile> _scanRemasteredEv() {
+    final remasteredDir = Directory('$hedOutPath/remastered');
+    if (!remasteredDir.existsSync()) return [];
+    final result = <ExchangeFile>[];
+    for (final entry in remasteredDir.listSync().whereType<Directory>()) {
+      if (!entry.path.split('/').last.endsWith('.ard')) continue;
+      for (final f in entry.listSync().whereType<File>()) {
+        final name = f.path.split('/').last;
+        if (!name.startsWith('UK_')) continue;
+        if (!name.endsWith('.ev') && !name.endsWith('.evdl')) continue;
+        result.add(ExchangeFile(
+          ukDataPath: f.path,
+          spDataPath: f.path.replaceFirst('/UK_', '/SP_'),
+          hasPair: false,
+          inPlace: true,
+        ));
+      }
+    }
+    return result;
+  }
+
+  // -----------------------------------------------------------------------
+  // Escaneia original/exchange/ (textos de menu/UI)
+  // -----------------------------------------------------------------------
+  List<ExchangeFile> _scanExchange() {
     final exchangeDir = Directory('$hedOutPath/original/exchange');
     if (!exchangeDir.existsSync()) return [];
 
@@ -401,6 +537,10 @@ class KH1BatchTranslator {
       final name = f.path.split('/').last;
       if (!name.startsWith('UK_')) continue;
       if (handled.contains(name)) continue;
+
+      // Valida se é arquivo de texto antes de incluir
+      final rawBytes = f.readAsBytesSync();
+      if (!_isTextFile(rawBytes, name)) continue;
 
       // Verifica se tem par de offsets
       final baseName = name.replaceFirst('UK_', '');
