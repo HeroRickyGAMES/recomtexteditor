@@ -32,10 +32,17 @@ import 'package:translator_plus/translator_plus.dart';
 //   0x6D        → …
 //   0x6E-0x6F   → - (hífen)
 //   0x70-0xBF   → ícones de botão [BTN:XX]
-//   0xC0-0xFF   → Latin-1 direto (é, ñ, á, ã, ç, etc.)
+//   0xC0-0xFF   → Latin-1 direto (é, ñ, á, ç, etc.)
+//               EXCEÇÕES — fonte KH1 reutiliza slots de umlaut alemão para PT/ES:
+//               0xC4 (Ä Latin-1) → glifo Ã  (encode: Ã→0xC4)
+//               0xD6 (Ö Latin-1) → glifo Õ  (encode: Õ→0xD6)
+//               0xE4 (ä Latin-1) → glifo ã  (encode: ã→0xE4)
+//               0xF6 (ö Latin-1) → glifo õ  (encode: õ→0xF6)
+//               Obs: KH1 europeu não tem alemão, slots ä/ö/Ä/Ö reaproveitados
 // =============================================================================
 class KH1Encoding {
   static const Map<int, String> _punctMap = {
+    // Pontuação (0x5F-0x6F)
     0x5F: '!',
     0x60: '?',
     0x61: '¥',
@@ -53,6 +60,11 @@ class KH1Encoding {
     0x6D: '…',
     0x6E: '-',
     0x6F: '-',
+    // Fonte KH1: slots de umlaut alemão reaproveitados para PT/ES
+    0xC4: 'Ã', // Ä Latin-1 → glifo Ã
+    0xD6: 'Õ', // Ö Latin-1 → glifo Õ
+    0xE4: 'ã', // ä Latin-1 → glifo ã
+    0xF6: 'õ', // ö Latin-1 → glifo õ
   };
 
   static const Map<String, int> _punctReverseMap = {
@@ -71,6 +83,11 @@ class KH1Encoding {
     ':': 0x6B,
     ';': 0x6C,
     '…': 0x6D,
+    // Fonte KH1: encode PT/ES → byte correto
+    'Ã': 0xC4,
+    'Õ': 0xD6,
+    'ã': 0xE4,
+    'õ': 0xF6,
   };
 
   // Termos que NÃO devem ser traduzidos (nomes próprios do universo KH)
@@ -111,7 +128,8 @@ class KH1Encoding {
       } else if (b >= 0x70 && b <= 0xBF) {
         sb.write('[BTN:${b.toRadixString(16).toUpperCase().padLeft(2, '0')}]');
       } else if (b >= 0xC0) {
-        sb.write(String.fromCharCode(b)); // Latin-1 direto
+        // Verifica remapeamento de fonte antes do Latin-1 direto
+        sb.write(_punctMap[b] ?? String.fromCharCode(b));
       } else {
         sb.write('[?:${b.toRadixString(16).toUpperCase().padLeft(2, '0')}]');
       }
