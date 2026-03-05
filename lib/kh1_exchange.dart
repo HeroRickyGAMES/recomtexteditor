@@ -173,12 +173,23 @@ class KH1Encoding {
   // Remove termos protegidos antes de traduzir, restaura depois
   static String protectTerms(String text, Map<String, String> placeholders) {
     String result = text;
-    // Aplica traduções específicas de personagens (Goofy→Pateta, etc.)
+    int idx = 0;
+
+    // 1. Protege códigos de controle [C:XX] e [BTN:XX] — Google pode corrompê-los
+    final codeRegex = RegExp(r'\[(?:C|BTN|\?):[\dA-Fa-f]{2}\]');
+    result = result.replaceAllMapped(codeRegex, (m) {
+      final ph = '##C${idx}##';
+      placeholders[ph] = m.group(0)!;
+      idx++;
+      return ph;
+    });
+
+    // 2. Aplica traduções específicas de personagens (Goofy→Pateta, etc.)
     for (final entry in _characterTranslations.entries) {
       result = result.replaceAll(entry.key, entry.value);
     }
-    // Protege termos que NÃO devem ser traduzidos
-    int idx = 0;
+
+    // 3. Protege termos que NÃO devem ser traduzidos
     for (final term in _protectedTerms) {
       if (result.contains(term)) {
         final placeholder = '##PROT${idx}##';
@@ -688,7 +699,7 @@ class KH1BatchTranslator {
   }
 
   // -----------------------------------------------------------------------
-  // Traduz todos os arquivos
+  // Traduz todos os arquivos — pool plana de 32 tarefas concorrentes
   // -----------------------------------------------------------------------
   Future<void> translateAll(List<ExchangeFile> files) async {
     int totalStrings = 0;
@@ -709,28 +720,35 @@ class KH1BatchTranslator {
 
     onProgress?.call(0, totalStrings, 'Iniciando...');
 
-    for (final ef in files) {
-      if (cancelled) break;
+    // Pool plana: 32 traduções simultâneas independente de arquivo
+    const int maxConcurrent = 32;
+
+    // Lista plana de trabalho: (fileIndex, stringIndex)
+    final List<(int, int)> work = [];
+    for (int fi = 0; fi < files.length; fi++) {
+      for (int si = 0; si < files[fi].strings.length; si++) {
+        work.add((fi, si));
+      }
+    }
+
+    // Rastreia quantas strings de cada arquivo já foram processadas
+    // para salvar o arquivo assim que terminar todas as suas strings
+    final Map<int, int> donePerFile = {};
+
+    Future<void> translateOne(int fi, int si) async {
+      if (cancelled) return;
+      final ef = files[fi];
       final fileName = ef.ukDataPath.split('/').last;
+      final original = ef.strings[si];
 
-      for (int i = 0; i < ef.strings.length; i++) {
-        if (cancelled) break;
+      final clean = original
+          .replaceAll(RegExp(r'\[(?:C|BTN|\?):[\dA-Fa-f]{2}\]'), '')
+          .trim();
 
-        final original = ef.strings[i];
-        // Filtra strings sem texto real
-        final clean = original
-            .replaceAll(RegExp(r'\[(?:C|BTN|\?):[\dA-Fa-f]{2}\]'), '')
-            .trim();
-        if (clean.length < 2) {
-          skipped++;
-          doneStrings++;
-          onProgress?.call(doneStrings, totalStrings,
-              '$fileName [$i/${ef.strings.length}]');
-          continue;
-        }
-
+      if (clean.length < 2) {
+        skipped++;
+      } else {
         try {
-          // Protege termos
           final Map<String, String> prot = {};
           final toTranslate = KH1Encoding.protectTerms(original, prot);
 
@@ -741,8 +759,6 @@ class KH1BatchTranslator {
           );
 
           String translatedText = translation.text;
-
-          // Ignora se já estava em PT
           bool alreadyPt = false;
           try {
             alreadyPt = translation.sourceLanguage.code
@@ -756,29 +772,42 @@ class KH1BatchTranslator {
             skipped++;
           } else {
             translatedText = KH1Encoding.restoreTerms(translatedText, prot);
-            ef.editString(i, translatedText);
+            ef.editString(si, translatedText);
             translated++;
           }
-
-          await Future.delayed(const Duration(milliseconds: 150));
         } catch (e) {
           errors++;
-          await Future.delayed(const Duration(milliseconds: 500));
+          // Delay curto só em erro para não saturar a API
+          await Future.delayed(const Duration(milliseconds: 200));
         }
-
-        doneStrings++;
-        onProgress?.call(doneStrings, totalStrings,
-            '$fileName [$i/${ef.strings.length}]');
       }
 
-      // Salva cada arquivo ao terminar (o path completo vem de _relativePathFromExchange)
-      if (!cancelled) {
+      doneStrings++;
+      onProgress?.call(doneStrings, totalStrings,
+          '$fileName [$si/${ef.strings.length}]');
+
+      // Salva arquivo assim que todas as suas strings foram processadas
+      final done = (donePerFile[fi] ?? 0) + 1;
+      donePerFile[fi] = done;
+      if (!cancelled && done == ef.strings.length) {
         try {
           ef.save(outputBase);
         } catch (e) {
           errors++;
         }
       }
+    }
+
+    // Processa a fila em batches de maxConcurrent
+    for (int wi = 0; wi < work.length; wi += maxConcurrent) {
+      if (cancelled) break;
+      final end = (wi + maxConcurrent).clamp(0, work.length);
+      await Future.wait(
+        List.generate(end - wi, (k) {
+          final (fi, si) = work[wi + k];
+          return translateOne(fi, si);
+        }),
+      );
     }
 
     onDone?.call(

@@ -1458,10 +1458,11 @@ class _ExchangeTranslateScreenState extends State<ExchangeTranslateScreen> {
                             const SizedBox(height: 4),
                             Builder(builder: (ctx) {
                               final maxLen = _selectedFile!.maxStringLen(_selectedStringIdx!);
-                              final curLen = _editCtrl.text.length;
-                              final over = curLen > maxLen;
+                              // Comparar bytes encodados (não chars) vs espaço disponível no arquivo
+                              final encodedLen = KH1Encoding.encode(_editCtrl.text).length;
+                              final over = encodedLen > maxLen;
                               return Text(
-                                'Limite in-place: $curLen / $maxLen chars${over ? " ⚠ MUITO LONGO — será truncado!" : ""}',
+                                'Limite in-place: $encodedLen / $maxLen bytes${over ? " ⚠ MUITO LONGO — será truncado!" : ""}',
                                 style: TextStyle(
                                   fontSize: 11,
                                   color: over ? Colors.orange : Colors.green[400],
@@ -1481,7 +1482,7 @@ class _ExchangeTranslateScreenState extends State<ExchangeTranslateScreen> {
                                 border: const OutlineInputBorder(),
                                 // Borda laranja quando passa do limite in-place
                                 enabledBorder: (_selectedFile!.inPlace &&
-                                        _editCtrl.text.length >
+                                        KH1Encoding.encode(_editCtrl.text).length >
                                             _selectedFile!.maxStringLen(_selectedStringIdx!))
                                     ? const OutlineInputBorder(
                                         borderSide: BorderSide(
