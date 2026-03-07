@@ -1155,6 +1155,16 @@ class _ExchangeTranslateScreenState extends State<ExchangeTranslateScreen> {
       }
     };
 
+    _translator!.onError = (error) {
+      if (mounted) {
+        setState(() {
+          _isTranslating = false;
+          _lastResult = error;
+          _status = 'Erro de API — tradução interrompida.';
+        });
+      }
+    };
+
     await _translator!.translateAll(_files);
   }
 

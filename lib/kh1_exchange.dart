@@ -32,13 +32,16 @@ import 'package:translator_plus/translator_plus.dart';
 //   0x6D        → …
 //   0x6E-0x6F   → - (hífen)
 //   0x70-0xBF   → ícones de botão [BTN:XX]
-//   0xC0-0xFF   → Latin-1 direto (é, ñ, á, ç, etc.)
-//               EXCEÇÕES — fonte KH1 reutiliza slots de umlaut alemão para PT/ES:
-//               0xC4 (Ä Latin-1) → glifo Ã  (encode: Ã→0xC4)
-//               0xD6 (Ö Latin-1) → glifo Õ  (encode: Õ→0xD6)
-//               0xE4 (ä Latin-1) → glifo ã  (encode: ã→0xE4)
-//               0xF6 (ö Latin-1) → glifo õ  (encode: õ→0xF6)
-//               Obs: KH1 europeu não tem alemão, slots ä/ö/Ä/Ö reaproveitados
+//   0xC0-0xFF   → NÃO é Latin-1 direto! Mapeamento real confirmado via US_font_data_tbl.bin:
+//               Maiúsculas: Á=0xCD, Â=0xCE, Ä=0xCF, Ç=0xD0, É=0xD2, Ê=0xD3,
+//                           Í=0xD6, Ó=0xDB, Ô=0xDC, Ö=0xDD, Ù=0xDE, Ú=0xDF,
+//                           Û=0xE0, Ü=0xE1
+//               Minúsculas: à=0xE3, á=0xE4, â=0xE5, ä=0xE6, ç=0xE7, è=0xE8,
+//                           é=0xE9, ê=0xEA, ë=0xEB, ì=0xEC, í=0xED, î=0xEE,
+//                           ï=0xEF, ñ=0xF0, ò=0xF1, ó=0xF2, ô=0xF3, ö=0xF4,
+//                           ù=0xF5, ú=0xF6, û=0xF7, ü=0xF8
+//               PT-BR (ã/õ não existem na fonte — substituídos por ä/ö):
+//                           ã→ä(0xE6), Ã→Ä(0xCF), õ→ö(0xF4), Õ→Ö(0xDD)
 // =============================================================================
 class KH1Encoding {
   static const Map<int, String> _punctMap = {
@@ -60,11 +63,6 @@ class KH1Encoding {
     0x6D: '…',
     0x6E: '-',
     0x6F: '-',
-    // Fonte KH1: slots de umlaut alemão reaproveitados para PT/ES
-    0xC4: 'Ã', // Ä Latin-1 → glifo Ã
-    0xD6: 'Õ', // Ö Latin-1 → glifo Õ
-    0xE4: 'ã', // ä Latin-1 → glifo ã
-    0xF6: 'õ', // ö Latin-1 → glifo õ
   };
 
   static const Map<String, int> _punctReverseMap = {
@@ -83,16 +81,46 @@ class KH1Encoding {
     ':': 0x6B,
     ';': 0x6C,
     '…': 0x6D,
-    // Fonte KH1: encode PT/ES → byte correto
-    'Ã': 0xC4,
-    'Õ': 0xD6,
-    'ã': 0xE4,
-    'õ': 0xF6,
+  };
+
+  // Mapeamento CORRETO de caracteres acentuados → bytes KH1
+  // Confirmado via US_font_data_tbl.bin (560 entradas × 16 bytes)
+  // PT-BR: ã/õ não existem na fonte → substituídos por ä/ö (dois pontos)
+  static const Map<String, int> _accentEncode = {
+    // Maiúsculas
+    'Á': 0xCD, 'Â': 0xCE, 'Ä': 0xCF, 'Ç': 0xD0,
+    'É': 0xD2, 'Ê': 0xD3, 'Í': 0xD6,
+    'Ó': 0xDB, 'Ô': 0xDC, 'Ö': 0xDD,
+    'Ù': 0xDE, 'Ú': 0xDF, 'Û': 0xE0, 'Ü': 0xE1,
+    // Minúsculas
+    'à': 0xE3, 'á': 0xE4, 'â': 0xE5, 'ä': 0xE6, 'ç': 0xE7,
+    'è': 0xE8, 'é': 0xE9, 'ê': 0xEA, 'ë': 0xEB,
+    'ì': 0xEC, 'í': 0xED, 'î': 0xEE, 'ï': 0xEF,
+    'ñ': 0xF0, 'ò': 0xF1, 'ó': 0xF2, 'ô': 0xF3, 'ö': 0xF4,
+    'ù': 0xF5, 'ú': 0xF6, 'û': 0xF7, 'ü': 0xF8,
+    // PT-BR: ã→ä(0xE6), Ã→Ä(0xCF), õ→ö(0xF4), Õ→Ö(0xDD)
+    'ã': 0xE6, 'Ã': 0xCF,
+    'õ': 0xF4, 'Õ': 0xDD,
+  };
+
+  // Mapeamento CORRETO de bytes KH1 → caracteres (para decode/exibição)
+  static const Map<int, String> _accentDecode = {
+    // Maiúsculas
+    0xCD: 'Á', 0xCE: 'Â', 0xCF: 'Ä', 0xD0: 'Ç',
+    0xD2: 'É', 0xD3: 'Ê', 0xD6: 'Í',
+    0xDB: 'Ó', 0xDC: 'Ô', 0xDD: 'Ö',
+    0xDE: 'Ù', 0xDF: 'Ú', 0xE0: 'Û', 0xE1: 'Ü',
+    // Minúsculas
+    0xE3: 'à', 0xE4: 'á', 0xE5: 'â', 0xE6: 'ä', 0xE7: 'ç',
+    0xE8: 'è', 0xE9: 'é', 0xEA: 'ê', 0xEB: 'ë',
+    0xEC: 'ì', 0xED: 'í', 0xEE: 'î', 0xEF: 'ï',
+    0xF0: 'ñ', 0xF1: 'ò', 0xF2: 'ó', 0xF3: 'ô', 0xF4: 'ö',
+    0xF5: 'ù', 0xF6: 'ú', 0xF7: 'û', 0xF8: 'ü',
   };
 
   // Termos que NÃO devem ser traduzidos (nomes próprios do universo KH)
   static const List<String> _protectedTerms = [
-    'Keyblade', 'Kingdom Hearts', 'Heartless', 'Nobody', 'Sora', 'Riku',
+    'Keyblade', 'Kingdom Hearts', 'Final Mix', 'Heartless', 'Nobody', 'Sora', 'Riku',
     'Kairi', 'Donald', 'Mickey', 'Ansem', 'Xehanort',
     'Hollow Bastion', 'Traverse Town', 'Wonderland', 'Olympus', 'Agrabah',
     'Monstro', 'Atlantica', 'Neverland', 'End of the World', 'Destiny Islands',
@@ -108,11 +136,21 @@ class KH1Encoding {
   // -----------------------------------------------------------------------
   // DECODE: bytes KH1 → texto legível
   // -----------------------------------------------------------------------
-  static String decode(Uint8List bytes, {int startOffset = 0}) {
+  // breakOnEnd=true (padrão): para em 0x00 ou 0x02 (formato exchange normal)
+  // breakOnEnd=false: decodifica o range inteiro sem parar (formato EvMsg, onde
+  //   0x02 é separador de linha e 0x00 pode aparecer como argumento de controle)
+  static String decode(Uint8List bytes, {int startOffset = 0, bool breakOnEnd = true}) {
     final sb = StringBuffer();
     for (int i = startOffset; i < bytes.length; i++) {
       final b = bytes[i];
-      if (b == 0x00 || b == 0x02) break;
+      if (b == 0x00 || b == 0x02) {
+        if (breakOnEnd) break;
+        // EvMsg: 0x00 → [?:00], 0x02 → [C:02]
+        sb.write(b == 0x00
+            ? '[?:00]'
+            : '[C:02]');
+        continue;
+      }
       if (b == 0x01) {
         sb.write(' ');
       } else if (b == 0x0A) {
@@ -128,8 +166,13 @@ class KH1Encoding {
       } else if (b >= 0x70 && b <= 0xBF) {
         sb.write('[BTN:${b.toRadixString(16).toUpperCase().padLeft(2, '0')}]');
       } else if (b >= 0xC0) {
-        // Verifica remapeamento de fonte antes do Latin-1 direto
-        sb.write(_punctMap[b] ?? String.fromCharCode(b));
+        // Mapeamento correto de bytes KH1 → caracteres (NÃO é Latin-1 direto)
+        final decoded = _accentDecode[b];
+        if (decoded != null) {
+          sb.write(decoded);
+        } else {
+          sb.write('[?:${b.toRadixString(16).toUpperCase().padLeft(2, '0')}]');
+        }
       } else {
         sb.write('[?:${b.toRadixString(16).toUpperCase().padLeft(2, '0')}]');
       }
@@ -152,9 +195,9 @@ class KH1Encoding {
           int? val;
           if (tok.startsWith('[C:') && tok.length == 6) {
             val = int.tryParse(tok.substring(3, 5), radix: 16);
-          } else if (tok.startsWith('[BTN:') && tok.length == 9) {
+          } else if (tok.startsWith('[BTN:') && tok.length == 8) {
             val = int.tryParse(tok.substring(5, 7), radix: 16);
-          } else if (tok.startsWith('[?:') && tok.length == 7) {
+          } else if (tok.startsWith('[?:') && tok.length == 6) {
             val = int.tryParse(tok.substring(3, 5), radix: 16);
           }
           if (val != null) {
@@ -171,15 +214,15 @@ class KH1Encoding {
       if (ch == ' ') {
         out.add(0x01); // espaço KH1
       } else if (ch == '\n') {
-        out.add(0x0A);
+        out.add(0x02); // 0x02 = enter/quebra de linha no KH1
       } else if (code >= 0x41 && code <= 0x5A) {
         out.add(code - 0x16); // maiúsculas
       } else if (code >= 0x61 && code <= 0x7A) {
         out.add(code - 0x1C); // minúsculas
       } else if (_punctReverseMap.containsKey(ch)) {
         out.add(_punctReverseMap[ch]!);
-      } else if (code >= 0xC0 && code <= 0xFF) {
-        out.add(code); // Latin-1 direto
+      } else if (_accentEncode.containsKey(ch)) {
+        out.add(_accentEncode[ch]!);
       }
       // Caracteres desconhecidos são ignorados silenciosamente
 
@@ -237,6 +280,9 @@ class ExchangeFile {
   final String? offsetPath;   // arquivo de offsets (16-bit), se existir
   final bool hasPair;         // true = tem _data.bin + _offset/_ofs.bin
   final bool inPlace;         // true = arquivo binário misto (ev), patch no lugar
+  final bool isMessageV361;   // true = formato "Message v361" (sysmsg.binl) com header+tabela
+  final bool isEvMsg;         // true = formato EvMsg (binl com magic "EvMsg") — rebuild, não inPlace
+  final bool nullOnly;        // true = _loadSingle() divide só em 0x00 (arquivos Help com 0x02 interno)
 
   List<String> strings = []; // strings decodificadas (apenas não-vazias) — para a UI
   List<int> _rawOffsets = [];  // byte offsets das strings não-vazias
@@ -247,12 +293,27 @@ class ExchangeFile {
   List<int> _rawAllPositions = [];   // offset de cada segmento (vazio ou não)
   List<bool> _rawAllIsEmpty = [];    // true = segmento vazio (só \0)
 
+  // Para _saveMessageV361(): sufixo de cada slot (do primeiro terminador até o fim do slot)
+  // Inclui o byte terminador (0x00/0x02) e quaisquer bytes adicionais de formatação
+  List<Uint8List> _rawSuffixes = [];
+  // Bytes de padding após o último slot (dat_size pode ser > sentinel value)
+  Uint8List _rawMsgTrailing = Uint8List(0);
+
+  // Para _loadEvMsg()/_saveEvMsg(): regiões de texto dentro do arquivo EvMsg
+  // Paralelas entre si; _evmsgAllStringIdx[i] = índice em strings[] ou -1 (entrada sem texto real)
+  List<int> _evmsgAllTextStarts = []; // posição onde o texto começa (após 07 0C 00)
+  List<int> _evmsgAllTextEnds = [];   // posição do byte 05 (fim exclusivo do texto)
+  List<int> _evmsgAllStringIdx = [];  // índice em strings[], ou -1 se não é texto real
+
   ExchangeFile({
     required this.ukDataPath,
     required this.spDataPath,
     this.offsetPath,
     required this.hasPair,
     this.inPlace = false,
+    this.isMessageV361 = false,
+    this.isEvMsg = false,
+    this.nullOnly = false,
   });
 
   // -----------------------------------------------------------------------
@@ -263,15 +324,73 @@ class ExchangeFile {
     _rawOffsets.clear();
     _rawAllPositions.clear();
     _rawAllIsEmpty.clear();
+    _rawSuffixes.clear();
+    _rawMsgTrailing = Uint8List(0);
+    _evmsgAllTextStarts.clear();
+    _evmsgAllTextEnds.clear();
+    _evmsgAllStringIdx.clear();
     final data = File(ukDataPath).readAsBytesSync();
     _rawData = data;
 
-    if (hasPair && offsetPath != null) {
+    if (isEvMsg) {
+      _loadEvMsg(data);
+    } else if (isMessageV361) {
+      _loadMessageV361(data);
+    } else if (hasPair && offsetPath != null) {
       _loadPaired(data);
     } else if (inPlace) {
       _loadInPlace(data);
     } else {
       _loadSingle(data);
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Formato EvMsg (binl com magic "EvMsgXX"):
+  //   Bytes 0-4: "EvMsg" (magic fixo)
+  //   Bytes 5-6: código de idioma ("UK", "SP", etc.)
+  //   Byte 7:    versão
+  //   Entradas de texto: 07 0C 00 [bytes de texto] 05 [separador]
+  //     - O byte 05 termina o texto e inicia o separador (compartilhado)
+  //     - Texto pode conter 0x00 e 0x02 como códigos de controle internos
+  //     - breakOnEnd=false necessário para decodificar o range completo
+  // -----------------------------------------------------------------------
+  void _loadEvMsg(Uint8List data) {
+    // Localiza todos os marcadores 07 0C 00 de uma vez
+    final List<int> markers = [];
+    for (int i = 0; i < data.length - 2; i++) {
+      if (data[i] == 0x07 && data[i + 1] == 0x0C && data[i + 2] == 0x00) {
+        markers.add(i);
+      }
+    }
+
+    // Cada entrada: texto vai de (marker+3) até o próximo marker (ou fim do arquivo).
+    // Funciona para ambos os subformatos:
+    //   Tipo A (dc01): 07 0C 00 [texto] 05 [separador 8 bytes] 07 0C 00 ...
+    //   Tipo B (di01): 07 0C 00 [texto 04] 07 0C 00 [texto 04] ...
+    // O separador/terminador (05, 04, etc.) faz parte do bloco "texto" e sobrevive
+    // ao round-trip encode/decode como [C:05], [C:04], [?:00], etc.
+    for (int i = 0; i < markers.length; i++) {
+      final textStart = markers[i] + 3;
+      final textEnd   = (i + 1 < markers.length) ? markers[i + 1] : data.length;
+
+      _evmsgAllTextStarts.add(textStart);
+      _evmsgAllTextEnds.add(textEnd);
+
+      // Decodifica com breakOnEnd=false (0x00/0x02/0x04/0x05 são códigos de controle)
+      final decoded = KH1Encoding.decode(
+        data.sublist(textStart, textEnd),
+        breakOnEnd: false,
+      );
+      // Filtra: só inclui entradas com conteúdo alfabético real
+      final alpha = decoded.replaceAll(RegExp(r'\[[^\]]+\]'), '').trim();
+      if (alpha.length >= 2 && alpha.contains(RegExp(r'[a-zA-Z]'))) {
+        _evmsgAllStringIdx.add(strings.length);
+        _rawOffsets.add(textStart);
+        strings.add(decoded);
+      } else {
+        _evmsgAllStringIdx.add(-1); // não é texto real, preservar verbatim
+      }
     }
   }
 
@@ -283,6 +402,54 @@ class ExchangeFile {
         _rawOffsets.add(off);
         strings.add(KH1Encoding.decode(data, startOffset: off));
       }
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Formato "Message v361" (sysmsg.binl): header + tabela de offsets LE16
+  // Estrutura:
+  //   0x00-0x0B  "Message v361"        (magic, 12 bytes)
+  //   0x0C       count LE32            (número de strings, ex: 488 = 0x1E8)
+  //   0x10       tbl_start LE32        (início da tabela = 0x0020)
+  //   0x14       data_start LE32       (início dos dados = 0x03F2 para 488 strings)
+  //   0x18       tbl_size LE32         (tamanho da tabela = (count+1)*2)
+  //   0x1C       data_size LE32        (tamanho dos dados — varia por idioma)
+  //   0x20       tabela: (count+1) x LE16, offsets relativos ao data_start
+  //   0x03F2+    string data (null-terminated, 0x00 ou 0x02)
+  // -----------------------------------------------------------------------
+  void _loadMessageV361(Uint8List data) {
+    final bd = data.buffer.asByteData();
+    final count    = bd.getUint32(0x0C, Endian.little);
+    final tblStart = bd.getUint32(0x10, Endian.little);
+    final datStart = bd.getUint32(0x14, Endian.little);
+    final datSize  = bd.getUint32(0x1C, Endian.little);
+
+    // Sentinel value = last entry in table (total size of slot data, NOT counting trailing padding)
+    int sentinelVal = 0;
+
+    for (int i = 0; i < count; i++) {
+      final offA = bd.getUint16(tblStart + i * 2,       Endian.little);
+      final offB = bd.getUint16(tblStart + (i + 1) * 2, Endian.little);
+      if (i == count - 1) sentinelVal = offB;
+      final abs     = datStart + offA;
+      final slotEnd = datStart + offB;
+      // Encontra o primeiro terminador (0x00 ou 0x02) dentro do slot
+      int textEnd = slotEnd;
+      for (int j = abs; j < slotEnd; j++) {
+        if (data[j] == 0x00 || data[j] == 0x02) { textEnd = j; break; }
+      }
+      _rawOffsets.add(abs);
+      strings.add(KH1Encoding.decode(data.sublist(abs, textEnd)));
+      // Sufixo: do primeiro terminador até o fim do slot (inclui terminador + bytes extras)
+      _rawSuffixes.add(data.sublist(textEnd, slotEnd));
+    }
+
+    // Preserva bytes de padding após todos os slots (dat_size pode ser > sentinel)
+    // esses bytes ficam DEPOIS do sentinel e são preservados separadamente
+    final trailingStart = datStart + sentinelVal;
+    final trailingEnd   = datStart + datSize;
+    if (trailingEnd > trailingStart) {
+      _rawMsgTrailing = data.sublist(trailingStart, trailingEnd);
     }
   }
 
@@ -318,10 +485,14 @@ class ExchangeFile {
 
     int pos = start;
     while (pos < data.length) {
-      // Encontra fim de string (0x00 ou 0x02)
+      // Encontra fim de string.
+      // nullOnly=true (arquivos Help): só divide em 0x00 — 0x02 é separador de linha interno.
+      // nullOnly=false (padrão): divide em 0x00 ou 0x02 (formato exchange normal).
       int end = pos;
-      while (end < data.length && data[end] != 0x00 && data[end] != 0x02) {
-        end++;
+      if (nullOnly) {
+        while (end < data.length && data[end] != 0x00) end++;
+      } else {
+        while (end < data.length && data[end] != 0x00 && data[end] != 0x02) end++;
       }
 
       // Rastreia TODAS as posições (incluindo vagas vazias) para preservar raw index
@@ -331,7 +502,8 @@ class ExchangeFile {
         // Segmento não-vazio
         _rawAllIsEmpty.add(false);
         _rawOffsets.add(pos);
-        strings.add(KH1Encoding.decode(data.sublist(pos, end)));
+        // nullOnly: decodifica sem parar em 0x02 (é separador interno, não terminador)
+        strings.add(KH1Encoding.decode(data.sublist(pos, end), breakOnEnd: !nullOnly));
       } else {
         // Vaga vazia — preserva na estrutura para reconstrução correta
         _rawAllIsEmpty.add(true);
@@ -374,13 +546,98 @@ class ExchangeFile {
     final outDir = Directory('$outputBase/$relPath');
     outDir.createSync(recursive: true);
 
-    if (hasPair && offsetPath != null) {
+    if (isEvMsg) {
+      _saveEvMsg(outDir.path, spFileName);
+    } else if (isMessageV361) {
+      _saveMessageV361(outDir.path, spFileName);
+    } else if (hasPair && offsetPath != null) {
       _savePaired(outDir.path, spFileName);
     } else if (inPlace) {
       _saveInPlace(outDir.path, spFileName);
     } else {
       _saveSingle(outDir.path, spFileName);
     }
+  }
+
+  // Reconstrói arquivo EvMsg substituindo apenas as regiões de texto traduzidas.
+  // Toda a estrutura (cabeçalho, marcadores 07 0C 00, byte 05, separadores) é copiada
+  // verbatim — só os bytes de texto entre 07 0C 00 e 05 são substituídos.
+  // O arquivo pode crescer ou encolher livremente (não é patch in-place).
+  void _saveEvMsg(String outDirPath, String spFileName) {
+    final data = _rawData;
+    final List<int> out = [];
+    int pos = 0;
+
+    for (int i = 0; i < _evmsgAllTextStarts.length; i++) {
+      final tStart = _evmsgAllTextStarts[i];
+      final tEnd   = _evmsgAllTextEnds[i];
+      final si     = _evmsgAllStringIdx[i];
+
+      // Copia tudo antes do início do texto (inclui 07 0C 00 e separadores anteriores)
+      out.addAll(data.sublist(pos, tStart));
+
+      if (si >= 0 && si < strings.length) {
+        // Entrada com texto real: escreve tradução codificada
+        out.addAll(KH1Encoding.encode(strings[si]));
+      } else {
+        // Entrada sem texto real (binário/controle): copia verbatim
+        out.addAll(data.sublist(tStart, tEnd));
+      }
+
+      // Avança pos para o byte 05 (será copiado junto com o próximo bloco)
+      pos = tEnd;
+    }
+
+    // Copia o resto do arquivo (byte 05 final, separadores, etc.)
+    out.addAll(data.sublist(pos));
+
+    File('$outDirPath/$spFileName').writeAsBytesSync(Uint8List.fromList(out));
+  }
+
+  void _saveMessageV361(String outDirPath, String spFileName) {
+    // Reconstrói o arquivo preservando o header "Message v361" e a tabela de offsets.
+    // Cada slot é: encode(translatedText) + sufixo original (terminador + bytes extras).
+    // Strings podem crescer/encolher livremente — sem truncamento.
+    final bd = _rawData.buffer.asByteData();
+
+    // Constrói novo buffer de string data
+    final List<int> strData = [];
+    final List<int> newOffsets = []; // offsets relativos ao datStart
+
+    for (int i = 0; i < strings.length; i++) {
+      newOffsets.add(strData.length);
+      strData.addAll(KH1Encoding.encode(strings[i]));
+      // Adiciona sufixo original (inclui terminador 0x00/0x02 + bytes extras do slot)
+      if (i < _rawSuffixes.length && _rawSuffixes[i].isNotEmpty) {
+        strData.addAll(_rawSuffixes[i]);
+      } else {
+        strData.add(0x00); // fallback: terminador nulo
+      }
+    }
+    // Sentinel: aponta para o fim de todos os slots (ANTES do trailing padding)
+    newOffsets.add(strData.length);
+    // Adiciona trailing padding após o sentinel (bytes extra que o arquivo original tem)
+    strData.addAll(_rawMsgTrailing);
+
+    // Reconstrói o arquivo completo
+    final out = <int>[];
+    // Header original bytes 0x00-0x1B (magic + count + tblStart + datStart + tblSize)
+    out.addAll(_rawData.sublist(0, 0x1C));
+    // data_size (0x1C-0x1F): novo tamanho total dos dados
+    final newDataSize = strData.length;
+    out.add(newDataSize & 0xFF);
+    out.add((newDataSize >> 8) & 0xFF);
+    out.add((newDataSize >> 16) & 0xFF);
+    out.add((newDataSize >> 24) & 0xFF);
+    // Tabela de offsets: (count+1) entradas LE16
+    for (final o in newOffsets) {
+      out.add(o & 0xFF);
+      out.add((o >> 8) & 0xFF);
+    }
+    // String data
+    out.addAll(strData);
+
+    File('$outDirPath/$spFileName').writeAsBytesSync(Uint8List.fromList(out));
   }
 
   void _savePaired(String outDirPath, String spFileName) {
@@ -511,6 +768,7 @@ class KH1BatchTranslator {
   // Callbacks de progresso
   Function(int current, int total, String status)? onProgress;
   Function(String result)? onDone;
+  Function(String error)? onError;
   bool cancelled = false;
 
   KH1BatchTranslator({required this.hedOutPath, required this.outputBase});
@@ -552,6 +810,10 @@ class KH1BatchTranslator {
     // Kanji table - arquivo muito grande de zeros/binário puro
     if (filename.endsWith('.knj')) return false;
 
+    // Arquivos .nam = formato binário "Message v360" embutido (allarea.nam, wname.nam, etc.)
+    // NÃO são exchange text puro — contêm header binário + multiple Message v360 sections
+    if (filename.endsWith('.nam')) return false;
+
     // Offset-only files (_offset.bin, _ofs.bin) - só ponteiros, sem texto real
     if (filename.contains('_offset.bin') || filename.contains('_ofs.bin')) return false;
 
@@ -589,10 +851,14 @@ class KH1BatchTranslator {
       // O game busca strings por índice sequencial (raw index), não byte offset.
       // Comprovado: UK/SP/FR/IT/GR todas têm "Kingdom Key" em raw[110] mas com
       // byte offsets diferentes. Empty slots devem ser preservados no rebuild.
+      // Arquivos Help (AbilityHelp, ItemHelp) usam 0x02 como separador de linha INTERNO
+      // dentro de strings null-terminated. nullOnly=true evita divisão incorreta em 0x02.
+      final isHelpFile = name.contains('Help');
       result.add(ExchangeFile(
         ukDataPath: f.path,
         spDataPath: f.path.replaceFirst('/UK_', '/SP_'),
         hasPair: false,
+        nullOnly: isHelpFile,
       ));
     }
     return result;
@@ -600,6 +866,8 @@ class KH1BatchTranslator {
 
   // -----------------------------------------------------------------------
   // Escaneia remastered/*.ard/UK_*.ev (legendas de cutscene)
+  // Arquivos EvMsg (magic "EvMsg"): isEvMsg=true, inPlace=false (rebuild livre)
+  // Outros .ev/.evdl/.binl: inPlace=true (patch no lugar)
   // -----------------------------------------------------------------------
   List<ExchangeFile> _scanRemasteredEv() {
     final remasteredDir = Directory('$hedOutPath/remastered');
@@ -611,11 +879,14 @@ class KH1BatchTranslator {
         final name = f.path.split('/').last;
         if (!name.startsWith('UK_')) continue;
         if (!name.endsWith('.ev') && !name.endsWith('.evdl') && !name.endsWith('.binl')) continue;
+        final raw = f.readAsBytesSync();
+        final evMsg = _isEvMsg(raw);
         result.add(ExchangeFile(
           ukDataPath: f.path,
           spDataPath: f.path.replaceFirst('/UK_', '/SP_'),
           hasPair: false,
-          inPlace: true,
+          inPlace: !evMsg,  // EvMsg é reconstruído, outros são patchados no lugar
+          isEvMsg: evMsg,
         ));
       }
     }
@@ -634,6 +905,23 @@ class KH1BatchTranslator {
     return result;
   }
 
+  // Detecta se um arquivo é formato EvMsg (magic "EvMsg" nos primeiros 5 bytes)
+  static bool _isEvMsg(Uint8List data) {
+    if (data.length < 8) return false;
+    return data[0] == 0x45 && data[1] == 0x76 && data[2] == 0x4D &&
+           data[3] == 0x73 && data[4] == 0x67; // "EvMsg"
+  }
+
+  // Detecta se um arquivo é formato "Message v361"
+  static bool _isMessageV361(Uint8List data) {
+    if (data.length < 16) return false;
+    const magic = [0x4D,0x65,0x73,0x73,0x61,0x67,0x65,0x20,0x76,0x33,0x36,0x31]; // "Message v361"
+    for (int i = 0; i < magic.length; i++) {
+      if (data[i] != magic[i]) return false;
+    }
+    return true;
+  }
+
   // Auxiliar: escaneia recursivamente diretório por UK_*.{binl,bin,ev,evdl}
   void _scanDirRecursive(Directory dir, List<ExchangeFile> result) {
     for (final entry in dir.listSync()) {
@@ -643,11 +931,17 @@ class KH1BatchTranslator {
         final lower = name.toLowerCase();
         if (!lower.endsWith('.binl') && !lower.endsWith('.bin') &&
             !lower.endsWith('.ev') && !lower.endsWith('.evdl')) continue;
+
+        // Detecta formato "Message v361" para salvar corretamente sem truncar
+        final raw = entry.readAsBytesSync();
+        final isMsg = _isMessageV361(raw);
+
         result.add(ExchangeFile(
           ukDataPath: entry.path,
           spDataPath: entry.path.replaceFirst('/UK_', '/SP_'),
           hasPair: false,
-          inPlace: true,
+          inPlace: !isMsg,         // inPlace só para ev/evdl normais
+          isMessageV361: isMsg,    // sysmsg.binl → rebuild com tabela
         ));
       } else if (entry is Directory) {
         _scanDirRecursive(entry, result);
@@ -717,7 +1011,8 @@ class KH1BatchTranslator {
   }
 
   // -----------------------------------------------------------------------
-  // Traduz todos os arquivos — pool plana de 32 tarefas concorrentes
+  // Traduz todos os arquivos — N arquivos concorrentes, strings sequenciais
+  // por arquivo (mais simples e sem race conditions no save)
   // -----------------------------------------------------------------------
   Future<void> translateAll(List<ExchangeFile> files) async {
     int totalStrings = 0;
@@ -725,6 +1020,8 @@ class KH1BatchTranslator {
     int translated = 0;
     int skipped = 0;
     int errors = 0;
+    int consecutiveErrors = 0;
+    const int maxConsecutiveErrors = 8;
 
     // Carrega todos e conta strings
     for (final ef in files) {
@@ -738,97 +1035,109 @@ class KH1BatchTranslator {
 
     onProgress?.call(0, totalStrings, 'Iniciando...');
 
-    // Pool plana: 32 traduções simultâneas independente de arquivo
-    const int maxConcurrent = 32;
-
-    // Lista plana de trabalho: (fileIndex, stringIndex)
-    final List<(int, int)> work = [];
-    for (int fi = 0; fi < files.length; fi++) {
-      for (int si = 0; si < files[fi].strings.length; si++) {
-        work.add((fi, si));
-      }
-    }
-
-    // Rastreia quantas strings de cada arquivo já foram processadas
-    // para salvar o arquivo assim que terminar todas as suas strings
-    final Map<int, int> donePerFile = {};
-
-    Future<void> translateOne(int fi, int si) async {
+    // Processa um arquivo completo (strings em sequência), depois salva
+    Future<void> translateFile(ExchangeFile ef) async {
       if (cancelled) return;
-      final ef = files[fi];
       final fileName = ef.ukDataPath.split('/').last;
-      final original = ef.strings[si];
 
-      final clean = original
-          .replaceAll(RegExp(r'\[(?:C|BTN|\?):[\dA-Fa-f]{2}\]'), '')
-          .trim();
+      for (int si = 0; si < ef.strings.length; si++) {
+        if (cancelled) return;
 
-      if (clean.length < 2) {
-        skipped++;
-      } else {
-        try {
-          final Map<String, String> prot = {};
-          final toTranslate = KH1Encoding.protectTerms(original, prot);
+        final original = ef.strings[si];
+        final clean = original
+            .replaceAll(RegExp(r'\[(?:C|BTN|\?):[\dA-Fa-f]{2}\]'), '')
+            .trim();
 
-          final translation = await _translator.translate(
-            toTranslate,
-            from: 'en',
-            to: 'pt',
-          );
-
-          String translatedText = translation.text;
-          bool alreadyPt = false;
+        if (clean.length < 2 || clean.length > 3000) {
+          if (clean.length > 3000) {
+            print('[SKIP] $fileName [str $si]: string muito longa (${clean.length} chars)');
+          }
+          skipped++;
+        } else {
           try {
-            alreadyPt = translation.sourceLanguage.code
-                .toLowerCase()
-                .startsWith('pt');
-          } catch (_) {
-            alreadyPt = translatedText == toTranslate;
-          }
+            final Map<String, String> prot = {};
+            final toTranslate = KH1Encoding.protectTerms(original, prot);
 
-          if (alreadyPt) {
-            skipped++;
-          } else {
-            translatedText = KH1Encoding.restoreTerms(translatedText, prot);
-            ef.editString(si, translatedText);
-            translated++;
+            // Tenta até 2 vezes (retry em timeout/erro transitório)
+            Translation? translation;
+            for (int attempt = 0; attempt < 2; attempt++) {
+              try {
+                translation = await _translator.translate(
+                  toTranslate,
+                  from: 'en',
+                  to: 'pt',
+                ).timeout(const Duration(seconds: 15));
+                break;
+              } catch (_) {
+                if (attempt == 0) {
+                  await Future.delayed(const Duration(seconds: 3));
+                } else {
+                  rethrow;
+                }
+              }
+            }
+
+            String translatedText = translation!.text;
+            bool alreadyPt = false;
+            try {
+              alreadyPt = translation.sourceLanguage.code
+                  .toLowerCase()
+                  .startsWith('pt');
+            } catch (_) {
+              alreadyPt = translatedText == toTranslate;
+            }
+
+            if (alreadyPt) {
+              skipped++;
+            } else {
+              translatedText = KH1Encoding.restoreTerms(translatedText, prot);
+              // Remover \n do texto traduzido — o game trata 0x0A como fim de string
+              translatedText = translatedText.replaceAll('\n', ' ').trim();
+              ef.editString(si, translatedText);
+              translated++;
+            }
+            consecutiveErrors = 0;
+          } catch (e) {
+            errors++;
+            consecutiveErrors++;
+            print('[ERRO] $fileName [str $si]: ${e.runtimeType}: $e');
+            await Future.delayed(const Duration(seconds: 2));
+            if (consecutiveErrors >= maxConsecutiveErrors) {
+              cancelled = true;
+              onError?.call(
+                'API indisponível após $consecutiveErrors erros consecutivos. '
+                'Traduzidas: $translated | Puladas: $skipped | Erros: $errors',
+              );
+            }
           }
-        } catch (e) {
-          errors++;
-          // Delay curto só em erro para não saturar a API
-          await Future.delayed(const Duration(milliseconds: 200));
         }
+
+        doneStrings++;
+        onProgress?.call(doneStrings, totalStrings,
+            '$fileName [$si/${ef.strings.length}]');
       }
 
-      doneStrings++;
-      onProgress?.call(doneStrings, totalStrings,
-          '$fileName [$si/${ef.strings.length}]');
-
-      // Salva arquivo assim que todas as suas strings foram processadas
-      final done = (donePerFile[fi] ?? 0) + 1;
-      donePerFile[fi] = done;
-      if (!cancelled && done == ef.strings.length) {
+      // Salva após TODAS as strings do arquivo estarem prontas
+      if (!cancelled) {
         try {
           ef.save(outputBase);
         } catch (e) {
+          print('[ERRO] Save $fileName: $e');
           errors++;
         }
       }
     }
 
-    // Processa a fila em batches de maxConcurrent
-    for (int wi = 0; wi < work.length; wi += maxConcurrent) {
+    // N arquivos concorrentes (cada um processa suas strings em sequência)
+    const int maxConcurrentFiles = 8;
+    for (int fi = 0; fi < files.length; fi += maxConcurrentFiles) {
       if (cancelled) break;
-      final end = (wi + maxConcurrent).clamp(0, work.length);
+      final end = (fi + maxConcurrentFiles).clamp(0, files.length);
       await Future.wait(
-        List.generate(end - wi, (k) {
-          final (fi, si) = work[wi + k];
-          return translateOne(fi, si);
-        }),
+        List.generate(end - fi, (k) => translateFile(files[fi + k])),
       );
     }
 
-    onDone?.call(
-        'Traduzidas: $translated | Puladas: $skipped | Erros: $errors');
+    onDone?.call('Traduzidas: $translated | Puladas: $skipped | Erros: $errors');
   }
 }
